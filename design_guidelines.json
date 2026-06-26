@@ -1,0 +1,76 @@
+{
+  "project": {
+    "name": "Small Business Task & Workload App",
+    "theme": "Light",
+    "archetype": "Swiss & High-Contrast",
+    "emotional_tone": "Objective, rigid, efficient, clear"
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Outfit",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-bold",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-semibold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium",
+      "h4": "text-lg font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-slate-500",
+      "overline": "text-xs uppercase tracking-[0.2em] font-semibold"
+    }
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#F8F9FA",
+    "border": "#E5E7EB",
+    "primary": "#002FA7",
+    "primary_hover": "#00227A",
+    "text_main": "#0F172A",
+    "text_muted": "#64748B",
+    "accents": {
+      "todo": "#E2E8F0",
+      "in_progress": "#FEF08A",
+      "done": "#BBF7D0",
+      "priority_high": "#EF4444",
+      "priority_med": "#F59E0B",
+      "priority_low": "#3B82F6"
+    }
+  },
+  "layout_and_spacing": {
+    "dashboard_grid": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+    "kanban_grid": "grid grid-cols-1 md:grid-cols-3 gap-6 items-start",
+    "padding": "generous, use p-6 or p-8 inside cards. App wrapper should have p-4 md:p-8.",
+    "border_radius": "rounded-none or max rounded-md (8px) for a sharp, objective feel",
+    "surfaces": "Use 'Grid Borders' or flat surfaces with 1px border. No heavy drop shadows. Rely on 1px solid borders."
+  },
+  "components_strategy": {
+    "buttons": "Flat, no shadow. Primary: bg-[#002FA7] text-white hover:bg-[#00227A]. Secondary: bg-transparent border border-slate-200 text-slate-900 hover:bg-slate-50.",
+    "cards": "border border-slate-200 bg-white p-6. No shadow by default. Hover state: slight lift -translate-y-1 and shadow-md.",
+    "inputs": "Shadcn defaults but force rounded-md, border-slate-200, focus:ring-2 focus:ring-[#002FA7].",
+    "charts": "Recharts. Use sharp lines, straight edges. No smooth curves on line charts (type='linear'). Colors: Primary blue, Slate.",
+    "tables": "Dense. text-sm. border-b on rows. Hover: bg-slate-50."
+  },
+  "media": {
+    "avatars": [
+      "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMHByb2Zlc3Npb25hbCUyMGhlYWRzaG90fGVufDB8fHx8MTc4MjQ3NjIzNXww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwyfHxidXNpbmVzcyUyMHByb2Zlc3Npb25hbCUyMGhlYWRzaG90fGVufDB8fHx8MTc4MjQ3NjIzNXww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1699899657680-421c2c2d5064?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwzfHxidXNpbmVzcyUyMHByb2Zlc3Npb25hbCUyMGhlYWRzaG90fGVufDB8fHx8MTc4MjQ3NjIzNXww&ixlib=rb-4.1.0&q=85"
+    ],
+    "empty_state_illustrations": [
+      "https://images.unsplash.com/photo-1611269154421-4e27233ac5c7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwxfHxjbGVhbiUyMG9mZmljZSUyMGRlc2slMjB3b3Jrc3BhY2V8ZW58MHx8fHwxNzgyNDc2MjM1fDA&ixlib=rb-4.1.0&q=85"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Setup Google Fonts: Include 'Outfit' and 'IBM Plex Sans' in index.html and update tailwind.config.js font families accordingly.",
+    "All interactive elements (buttons, inputs, select, links) MUST have a data-testid attribute in kebab-case format representing their specific role. (e.g., data-testid='create-task-button')",
+    "Use 'lucide-react' for all icons.",
+    "Implement Recharts for the Admin Dashboard. Include a BarChart for workload comparison and a PieChart for task status breakdown. Keep chart styling sharp and flat (no 3D or rounded bar corners if possible).",
+    "Employee Task Workspace: Implement a Kanban board layout for Todo, In-Progress, Done status lists, or a highly scanable dense grid list with clear priority badges.",
+    "Header/Nav: Fixed or sticky top navigation with solid white or backdrop-blur background, including user avatar (use provided media URLs), role badge, and logout CTA.",
+    "DO NOT use any placeholder images (like via.placeholder.com). Use the URLs in media.avatars.",
+    "Include Shadcn UI for dropdowns, selects, modals, and toasts. Customize standard Shadcn borders to be sharper (max rounded-md) to fit the Swiss High-Contrast theme.",
+    "Form actions should always show loading states and emit toast notifications upon success or error."
+  ]
+}
