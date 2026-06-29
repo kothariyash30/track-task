@@ -1,0 +1,31 @@
+{
+  "summary": "Smoke regression after Railway-readiness backend changes. Backend startup log shows 'Startup complete: indexes ensured and seeds run.' Both new health endpoints behave correctly via preview proxy: /api/health -> 200 {status:ok,db:ok}. /health (no /api) is shadowed by the preview's frontend proxy and returns the SPA HTML (200) — this is a preview-domain proxy behavior; on Railway it will hit the backend directly. Auth, admin dashboard, CSV export, role guard, and CORS preflight all pass. UI: admin lands on /admin and Team Overview fully renders (charts + totals); employee maya lands on /tasks and Kanban populates with 5 tasks (3 in-progress, 2 done).",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "Supervisor startup log: 'Startup complete: indexes ensured and seeds run.'",
+    "GET /api/health -> 200 {\"status\":\"ok\",\"db\":\"ok\"}",
+    "POST /api/auth/login admin -> 200 with access_token",
+    "GET /api/auth/me -> 200 admin user",
+    "POST /api/auth/login maya -> 200 with access_token",
+    "GET /api/admin/dashboard -> 200 with totals + per_user",
+    "GET /api/admin/tasks/export.csv (admin) -> 200 valid CSV header + rows",
+    "GET /api/admin/tasks/export.csv (employee maya) -> 403 {detail:'Admin only'}",
+    "CORS preflight OPTIONS /api/auth/login -> 204 with access-control-allow-origin:*, allow-headers:*, allow-methods incl POST",
+    "UI admin login -> /admin renders Team Overview, Workload chart, Status breakdown, employee table (no infinite spinner)",
+    "UI employee maya login -> /tasks renders Kanban (To Do/In Progress/Done) populated with seed tasks"
+  ],
+  "failed": [
+    {
+      "area": "deployment-note (not a bug)",
+      "issue": "GET /health (no /api prefix) on the preview domain returns the React SPA HTML (200) because the preview ingress proxies only /api/* to the backend. On Railway (single-service deploy of backend) the new /health endpoint will be reachable directly. Could not verify Railway healthcheck through preview URL — relies on Railway domain.",
+      "evidence": "curl https://team-tasks-280.preview.emergentagent.com/health returned index.html, not {\"status\":\"ok\"}",
+      "priority": "LOW"
+    }
+  ],
+  "action_items": [
+    "No code changes required for preview. When deploying to Railway, verify Railway healthcheck path is /health (or switch to /api/health which is also available and pings DB)."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
