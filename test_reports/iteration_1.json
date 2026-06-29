@@ -1,0 +1,49 @@
+{
+  "summary": "Backend auth + read endpoints work; tasks read/update/delete + time logs + admin dashboard endpoints work. Two blocking bugs: (1) POST /api/tasks returns 500 due to ObjectId injected by insert_one (task is persisted but response serialization fails; frontend gets error toast 'Request failed with status code 500'); (2) Admin dashboard page stuck on 'Loading dashboard...' — KPI tiles do not render (api/admin/dashboard returns 200 via curl, so suspect a separate failing call or render path). Employee dashboard renders columns visually but data-testid selectors column-todo/column-in_progress/column-done were not found by selector.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login admin -> 200, role=admin, sets access_token+refresh_token httpOnly cookies",
+    "POST /api/auth/login employee (maya) -> 200, role=employee",
+    "POST /api/auth/login bad password -> 401",
+    "GET /api/auth/me with cookie -> 200; without cookie -> 401",
+    "POST /api/auth/register -> 200, sets cookies, /auth/me with returned cookies -> 200",
+    "GET /api/tasks?scope=mine (employee) -> 200 list",
+    "GET /api/tasks?scope=all (employee) -> 403",
+    "PATCH /api/tasks/{id} status=done sets completed_at; status=todo unsets completed_at (verified completed_at=None)",
+    "POST /api/tasks/{id}/time-logs hours=1 -> 200; hours=30 -> 422; hours=0 -> 422",
+    "DELETE /api/tasks/{id} -> 200 (owner allowed)",
+    "Employee assigning task to another user -> 403",
+    "GET /api/admin/dashboard as admin -> 200 with totals/status_counts/per_user; as employee -> 403",
+    "Frontend /login loads, admin creds prefilled, admin login redirects to /admin",
+    "Logout button clears auth and returns to /login",
+    "Employee login redirects to /tasks"
+  ],
+  "failed": [
+    {
+      "area": "backend POST /api/tasks",
+      "issue": "Returns 500 Internal Server Error. Task is actually inserted into DB but response serialization fails: `ValueError: [TypeError(\"'ObjectId' object is not iterable\")]`. Root cause: motor's `db.tasks.insert_one(task)` mutates the dict to add `_id`; the same object is then passed to `_enrich_tasks` and returned, so FastAPI tries to serialize an ObjectId. Fix: `task.pop('_id', None)` before enrichment, or re-fetch with projection `{\"_id\": 0}` (same pattern already used in update_task/list_tasks).",
+      "evidence": "curl POST /api/tasks -> 'Internal Server Error'; backend.err.log shows ObjectId TypeError in fastapi/encoders.py; frontend toast 'Request failed with status code 500' on Create task click (screenshot captured).",
+      "priority": "HIGH"
+    },
+    {
+      "area": "frontend /admin (AdminDashboard)",
+      "issue": "Page stays on 'Loading dashboard...' indefinitely; KPI tiles (kpi-employees, kpi-total-tasks, kpi-completed, kpi-hours-logged) never render. Direct curl to /api/admin/dashboard with admin cookie returns valid 200 JSON, so likely either an additional fetch (e.g. /api/users or per-user list) is failing in the browser, or a rendering guard waits on state that never resolves.",
+      "evidence": "Screenshot of /admin shows only spinner text 'Loading dashboard...'. All four KPI data-testid elements report is_visible=False after navigation.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "frontend EmployeeDashboard kanban testids",
+      "issue": "data-testid attributes column-todo / column-in_progress / column-done not found by selector (is_visible=False). Visually, To Do / In Progress / Done columns render with task counts, so the testids may have different names or be applied to inner elements. Minor blocker for automated testing.",
+      "evidence": "Playwright is_visible checks return False for all three column testids; screenshot confirms columns ARE rendered visually.",
+      "priority": "MEDIUM"
+    }
+  ],
+  "action_items": [
+    "Fix POST /api/tasks: strip `_id` before returning or refetch with projection {\"_id\":0} before calling _enrich_tasks (mirrors update_task pattern at line 292).",
+    "Debug AdminDashboard mount: open browser devtools network on /admin to find which call hangs/fails (likely a secondary fetch). Verify loading state resets even when dashboard payload arrives.",
+    "Verify/apply data-testid='column-todo|column-in_progress|column-done' on the actual column containers in EmployeeDashboard.jsx for testability."
+  ],
+  "success_rate": {"backend": "92%", "frontend": "60%"},
+  "retest_needed": true,
+  "full_testing_deferred": true
+}
