@@ -20,12 +20,22 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict
 # ------------------------------------------------------------
 # Setup
 # ------------------------------------------------------------
-mongo_url = os.environ["MONGO_URL"]
-db_name = os.environ["DB_NAME"]
+def _required_env(key: str) -> str:
+    val = os.environ.get(key)
+    if not val:
+        raise RuntimeError(
+            f"Missing required environment variable '{key}'. "
+            "Set it in your hosting provider (e.g. Railway → Service → Variables)."
+        )
+    return val
+
+
+mongo_url = _required_env("MONGO_URL")
+db_name = _required_env("DB_NAME")
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 
-JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_SECRET = _required_env("JWT_SECRET")
 JWT_ALGORITHM = "HS256"
 ACCESS_TTL_MIN = 60 * 24  # 24h for convenience in this internal tool
 REFRESH_TTL_DAYS = 7
@@ -510,12 +520,32 @@ async def seed_sample_tasks():
 
 @app.on_event("startup")
 async def on_startup():
-    await db.users.create_index("email", unique=True)
-    await db.tasks.create_index("assignee_id")
-    await db.tasks.create_index("status")
-    await db.time_logs.create_index("task_id")
-    await seed_users()
-    await seed_sample_tasks()
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.tasks.create_index("assignee_id")
+        await db.tasks.create_index("status")
+        await db.time_logs.create_index("task_id")
+        await seed_users()
+        await seed_sample_tasks()
+        logger.info("Startup complete: indexes ensured and seeds run.")
+    except Exception as exc:  # pragma: no cover - logs the connectivity issue
+        logger.exception(
+            "Startup database step failed (will continue serving but DB may be unreachable): %s", exc
+        )
+
+
+@app.get("/health")
+async def health_root():
+    return {"status": "ok"}
+
+
+@api.get("/health")
+async def health_api():
+    try:
+        await db.command("ping")
+        return {"status": "ok", "db": "ok"}
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "degraded", "db": str(exc)})
 
 
 @app.on_event("shutdown")
@@ -526,11 +556,27 @@ async def shutdown_db_client():
 # Mount router + CORS
 app.include_router(api)
 
-frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[frontend_url, "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS origins: comma-separated list in FRONTEND_URL env (or "*" for wildcard).
+# When "*" is used we cannot allow credentials per CORS spec, but Bearer-token
+# auth still works (token is sent in the Authorization header, not via cookies).
+_frontend_env = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+_origins = [o.strip() for o in _frontend_env.split(",") if o.strip()]
+_use_wildcard = "*" in _origins
+if _use_wildcard:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    if "http://localhost:3000" not in _origins:
+        _origins.append("http://localhost:3000")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
