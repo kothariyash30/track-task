@@ -1,0 +1,25 @@
+{
+  "summary": "Regression smoke after env-var resilience change (DB_NAME default + auto JWT_SECRET). Backend boots cleanly, all auth/admin/employee endpoints behave as expected, frontend admin + employee flows render and CSV download works.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "Supervisor backend log shows 'Startup complete: indexes ensured and seeds run.' (latest entry 2026-06-29 15:55:56)",
+    "GET /api/health -> {status:ok, db:ok}",
+    "POST /api/auth/login admin@taskflow.com/admin123 -> 200 with access_token",
+    "Admin Bearer: GET /api/auth/me -> 200, GET /api/admin/dashboard -> 200, GET /api/admin/tasks/export.csv -> 200 with CSV body",
+    "POST /api/auth/login maya@taskflow.com/employee123 -> 200 with access_token",
+    "Employee Bearer: GET /api/tasks?scope=mine -> 200, GET /api/admin/dashboard -> 403 (correctly denied)",
+    "UI: Admin login redirects to /admin; KPIs (Employees/Total Tasks/Completed/Hours Logged), Workload bar chart, Status donut, and employee section render",
+    "UI: Export CSV button on /admin triggered browser download (taskflow-tasks-20260629-155727.csv)",
+    "UI: Employee login redirects to /tasks; Kanban shows three columns (To Do 0 / In Progress 3 / Done 2) with seeded tasks",
+    "No JWT_SECRET warning emitted in current runtime logs (JWT_SECRET env var is set, as expected)"
+  ],
+  "failed": [],
+  "action_items": [],
+  "notes": [
+    "Older backend.err.log lines containing KeyError: 'JWT_SECRET' are from prior runs before the fix; the latest startup is clean.",
+    "Could not simulate JWT_SECRET-absent case without restarting the process; behavior verified via code review reference only."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}

@@ -30,12 +30,24 @@ def _required_env(key: str) -> str:
     return val
 
 
+# MONGO_URL is the only env var that MUST be provided.
 mongo_url = _required_env("MONGO_URL")
-db_name = _required_env("DB_NAME")
+db_name = os.environ.get("DB_NAME") or "taskflow"
+
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 
-JWT_SECRET = _required_env("JWT_SECRET")
+# JWT_SECRET: prefer env var. If not set (single-instance trials), generate one
+# at boot and warn — tokens won't survive a restart, but the app will start.
+import secrets as _secrets  # local import to keep the top of file tidy
+_jwt_env = os.environ.get("JWT_SECRET")
+if not _jwt_env:
+    _jwt_env = _secrets.token_hex(32)
+    logging.getLogger("taskflow").warning(
+        "JWT_SECRET not set — generated an ephemeral one. "
+        "Set JWT_SECRET in env to keep sessions valid across restarts."
+    )
+JWT_SECRET = _jwt_env
 JWT_ALGORITHM = "HS256"
 ACCESS_TTL_MIN = 60 * 24  # 24h for convenience in this internal tool
 REFRESH_TTL_DAYS = 7

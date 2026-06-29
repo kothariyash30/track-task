@@ -24,17 +24,19 @@ Railway does not bundle MongoDB. Create a free MongoDB Atlas cluster:
 
 ## 3. Environment Variables (Service → Variables)
 
-| Key | Example value |
-| --- | --- |
-| `MONGO_URL` | `mongodb+srv://USER:PWD@cluster0.xxx.mongodb.net/?retryWrites=true&w=majority` |
-| `DB_NAME` | `taskflow` |
-| `JWT_SECRET` | a 64-char random string (e.g. `openssl rand -hex 32`) |
-| `ADMIN_EMAIL` | `admin@taskflow.com` |
-| `ADMIN_PASSWORD` | `<choose a strong password>` |
-| `FRONTEND_URL` | URL where you host the React frontend, e.g. `https://taskflow.vercel.app`. Use `*` if you don't have one yet (Bearer-token auth still works without cookies). |
+**Only `MONGO_URL` is strictly required.** Everything else has a sensible default.
 
-The backend refuses to boot if `MONGO_URL`, `DB_NAME` or `JWT_SECRET` is missing,
-and prints a clear error message identifying the missing key.
+| Key | Required? | Example value | Notes |
+| --- | --- | --- | --- |
+| `MONGO_URL` | **YES** | `mongodb+srv://USER:PWD@cluster0.xxx.mongodb.net/?retryWrites=true&w=majority` | MongoDB connection string |
+| `DB_NAME` | optional | `taskflow` | Defaults to `taskflow` if unset |
+| `JWT_SECRET` | optional but **recommended** | 64-char hex (`openssl rand -hex 32`) | Auto-generated at boot if unset; logging out / restarting will invalidate tokens unless you set it |
+| `ADMIN_EMAIL` | optional | `admin@taskflow.com` | Seeded admin email; defaults to `admin@taskflow.com` |
+| `ADMIN_PASSWORD` | optional | strong password | Seeded admin password; defaults to `admin123` (change ASAP) |
+| `FRONTEND_URL` | optional | `https://taskflow.vercel.app` or `*` | CORS origin; `*` disables credentials but Bearer tokens still work |
+
+The backend refuses to boot only if `MONGO_URL` is missing, and prints the exact
+variable name in the error.
 
 ## 4. Trigger a deploy
 
