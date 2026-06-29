@@ -1,0 +1,19 @@
+{
+  "summary": "Regression smoke after adding /app/backend/main.py shim, Procfile, and nixpacks.toml for Railway deploy. No impact on running preview. All targeted backend endpoints and frontend flows pass. Shim import verified.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "Python shim import: `from main import app` returns FastAPI app (title 'TaskFlow API')",
+    "POST /api/auth/login (admin@taskflow.com/admin123) -> 200 with access_token (len=245)",
+    "GET /api/auth/me with Bearer -> 200, role=admin",
+    "GET /api/admin/dashboard -> 200, totals={tasks:9, employees:5, completed:4, hours_logged:11.0}, per_user populated",
+    "GET /api/admin/tasks/export.csv -> 200, Content-Type text/csv; header row 'id,title,description,status,priority,due_date,hours_logged,assignee_name,...'",
+    "Frontend /login -> admin login redirects to /admin; Team Overview KPIs render (5/9/4/11.0) and Recharts (Workload by employee, Status breakdown) display",
+    "Frontend /login -> maya@taskflow.com employee login redirects to /tasks; Kanban renders three columns TO DO (0), IN PROGRESS (3), DONE (2) with task cards"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% (2/2)"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Recharts console warnings about width(-1)/height(-1) appear momentarily during chart mount on the admin dashboard but charts render correctly after layout settles; non-blocking cosmetic warning, not a regression. Deployment files (main.py shim, Procfile, nixpacks.toml) are not loaded by supervisor; preview backend continues to run server:app and is unaffected."
+}
