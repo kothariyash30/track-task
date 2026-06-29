@@ -178,7 +178,7 @@ async def register(body: RegisterBody, response: Response):
     access = create_access_token(user["id"], user["email"], user["role"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
-    return public_user(user)
+    return {**public_user(user), "access_token": access}
 
 
 @api.post("/auth/login")
@@ -190,7 +190,7 @@ async def login(body: LoginBody, response: Response):
     access = create_access_token(user["id"], user["email"], user["role"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
-    return public_user(user)
+    return {**public_user(user), "access_token": access}
 
 
 @api.post("/auth/logout")

@@ -1,0 +1,24 @@
+{
+  "summary": "Verified the Bearer-token auth bug fix end-to-end. Backend /auth/login now returns access_token in body; protected endpoints accept Authorization: Bearer header. Frontend stores token in localStorage as 'taskflow_access_token', admin dashboard fully loads with all 4 KPIs, persists across reload, logout clears token + cookies, and protected routes redirect to /login. Employee login lands on /tasks with kanban columns rendered.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login -> 200, body contains user fields + access_token (245-char JWT)",
+    "GET /api/auth/me with Authorization: Bearer -> 200 + user payload (no cookie used)",
+    "GET /api/admin/dashboard with Bearer -> 200, totals/status_counts/per_user present",
+    "GET /api/users with Bearer -> 200, list of users",
+    "GET /api/tasks?scope=all with Bearer -> 200, list of tasks",
+    "Admin UI login lands on /admin and KPIs (kpi-employees=5, kpi-total-tasks=8, kpi-completed=4, kpi-hours-logged=11.0) render; no 'Loading dashboard…' stuck state",
+    "localStorage.taskflow_access_token set after login (len=245)",
+    "Reload persistence: dashboard re-renders after browser reload (token survives)",
+    "Logout clears localStorage token and redirects to /login; subsequent /admin nav redirects to /login",
+    "Employee login (maya@taskflow.com) lands on /tasks with To Do / In Progress / Done kanban columns"
+  ],
+  "failed": [],
+  "minor_observations": [
+    {"area": "AdminDashboard charts", "issue": "Recharts console warning 'width(-1) and height(-1) of chart should be greater than 0' for the Status breakdown pie (container initial size). Cosmetic/pre-existing, not related to auth fix. Chart legend renders but pie may render empty until container measured.", "priority": "LOW"}
+  ],
+  "action_items": [],
+  "success_rate": {"backend": "100% (5/5 endpoints)", "frontend": "100% (7/7 UI checks)"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
