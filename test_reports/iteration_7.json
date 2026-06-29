@@ -1,0 +1,19 @@
+{
+  "summary": "Regression smoke after package.json change (ajv ^8 added as direct dep, overrides block removed). Frontend bundle loads cleanly with no JS errors; backend healthy; both admin and employee auth flows render their respective dashboards correctly.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "package.json: ajv ^8 in dependencies, no overrides field (resolutions block retained)",
+    "GET /api/health -> 200",
+    "POST /api/auth/login admin -> 200 with access_token JWT",
+    "/login page renders with email+password inputs and Sign in button, no bundle/JS errors",
+    "Admin login (admin@taskflow.com/admin123) -> redirects to /admin; Team Overview KPIs (Employees 5, Total Tasks 9, Completed 4, Hours 11.0), Workload chart, Status donut and employee table all rendered",
+    "Employee login (maya@taskflow.com/employee123) -> redirects to /tasks; Kanban (To Do/In Progress/Done) populated with task cards, KPIs visible",
+    "Authenticated API calls succeed: /api/admin/dashboard 200, /api/tasks?scope=all 200, /api/users 200",
+    "No pageerror or console errors captured during full flow"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
