@@ -377,7 +377,7 @@ async def admin_dashboard(_: dict = Depends(require_admin)):
     return {
         "totals": {
             "tasks": len(tasks),
-            "employees": len([u for u in employees if u["role"] == "employee"]),
+            "employees": len([usr for usr in employees if usr["role"] == "employee"]),
             "completed": status_counts.get("done", 0),
             "hours_logged": round(total_hours, 2),
         },

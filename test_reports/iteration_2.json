@@ -1,0 +1,29 @@
+{
+  "summary": "Regression pass after code-review fixes (backend admin_dashboard comprehension rename u->usr; frontend logout/onDragStart catch -> console.warn). All previously failing flows from iteration_1 now pass. Backend: auth/login (admin+employee+bad), /auth/me with/without cookie, admin dashboard totals (employees=5 correctly counts only role==employee), tasks CRUD, completed_at toggle on status change, time-logs increment hours_logged (verified via re-fetch). Frontend: admin->/admin, employee->/tasks, logout clears cookie (/api/auth/me=401), AdminDashboard renders charts+KPIs+filters (assignee/priority/status/overdue/reset all functional), Employee Kanban DnD persists across reload with no console errors.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login admin -> 200, sets access_token cookie",
+    "POST /api/auth/login maya (employee) -> 200",
+    "POST /api/auth/login bad password -> 401",
+    "GET /api/auth/me with cookie -> 200; without -> 401",
+    "GET /api/admin/dashboard totals.employees=5 (only role==employee), tasks=8, completed=3, hours_logged=11.0 (rename u->usr regression OK)",
+    "POST /api/tasks -> 200 (creates task, returns id; previous 500 bug from iter_1 is fixed)",
+    "PATCH /api/tasks/{id} status=done sets completed_at; status=todo unsets it",
+    "POST /api/tasks/{id}/time-logs hours=2.5 -> 200, hours_logged updated to 2.5 (verified via list_tasks)",
+    "DELETE /api/tasks/{id} -> 200",
+    "Frontend /login: admin creds prefilled, submit -> /admin",
+    "AdminDashboard KPIs render: Employees 5, Total 8, Completed 3, Hours 11.0",
+    "Workload bar chart + Status pie chart render",
+    "All tasks tab filters: priority=high (8->3), +status=done (->1), +overdue (->0), reset (->8); assignee dropdown lists all employees",
+    "Logout button: navigates to /login; subsequent /api/auth/me=401 (cookie cleared); no console errors from logout()",
+    "Employee login (maya) -> /tasks",
+    "Kanban columns todo/in_progress/done visible with data-testid",
+    "DnD: card dragged from To Do to Done persists after page reload (onDragStart catch change OK)"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Both prior HIGH bugs from iteration_1 (POST /api/tasks 500, AdminDashboard stuck loading) are resolved. No regressions from the u->usr rename or console.warn additions. App ready for first finish."
+}

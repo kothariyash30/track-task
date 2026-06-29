@@ -98,7 +98,7 @@ export default function EmployeeDashboard() {
   const onDragStart = (task) => (e) => {
     setDraggingId(task.id);
     e.dataTransfer.effectAllowed = "move";
-    try { e.dataTransfer.setData("text/plain", task.id); } catch { /* noop */ }
+    try { e.dataTransfer.setData("text/plain", task.id); } catch (err) { console.warn("dataTransfer.setData unavailable", err); }
   };
   const onDragEnd = () => { setDraggingId(null); setDragOverCol(null); };
   const onColDragOver = (col) => (e) => {
