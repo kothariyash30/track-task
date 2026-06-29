@@ -15,14 +15,17 @@ const PRIORITY_COLOR = {
 const NEXT_STATUS = { todo: "in_progress", in_progress: "done", done: "in_progress" };
 const PREV_STATUS = { in_progress: "todo", done: "in_progress" };
 
-export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onLogTime, canEdit = true, showAssignee = false }) {
+export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onLogTime, canEdit = true, showAssignee = false, draggable = false, onDragStart, onDragEnd }) {
   const due = task.due_date ? parseISO(task.due_date) : null;
   const overdue = due && task.status !== "done" && isPast(due);
 
   return (
     <div
       data-testid={`task-card-${task.id}`}
-      className="group flex flex-col gap-3 border border-slate-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300"
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={`group flex flex-col gap-3 border border-slate-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-slate-300 ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">

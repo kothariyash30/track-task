@@ -91,6 +91,41 @@ export default function EmployeeDashboard() {
 
   const openTimeLog = (t) => { setTimeLogTask(t); setTimeLogOpen(true); };
 
+  // --- Drag & drop ---
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOverCol, setDragOverCol] = useState(null);
+
+  const onDragStart = (task) => (e) => {
+    setDraggingId(task.id);
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", task.id); } catch { /* noop */ }
+  };
+  const onDragEnd = () => { setDraggingId(null); setDragOverCol(null); };
+  const onColDragOver = (col) => (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverCol !== col) setDragOverCol(col);
+  };
+  const onColDragLeave = () => setDragOverCol(null);
+  const onColDrop = (col) => async (e) => {
+    e.preventDefault();
+    setDragOverCol(null);
+    const id = draggingId || e.dataTransfer.getData("text/plain");
+    setDraggingId(null);
+    const task = tasks.find((t) => t.id === id);
+    if (!task || task.status === col) return;
+    // optimistic update
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: col } : t)));
+    try {
+      const { data } = await api.patch(`/tasks/${id}`, { status: col });
+      upsert(data);
+      toast.success(`Moved to ${col.replace("_", " ")}`);
+    } catch (err) {
+      toast.error(formatApiError(err));
+      load();
+    }
+  };
+
   const stats = useMemo(() => ({
     total: tasks.length,
     done: tasks.filter((t) => t.status === "done").length,
@@ -149,10 +184,18 @@ export default function EmployeeDashboard() {
                   <span className="text-sm font-medium text-slate-500" data-testid={`col-count-${col.key}`}>{grouped[col.key].length}</span>
                 </div>
               </div>
-              <div className="flex flex-col gap-3" data-testid={`column-${col.key}`}>
+              <div
+                className={`flex min-h-[120px] flex-col gap-3 rounded-md p-2 transition-colors ${
+                  dragOverCol === col.key ? "bg-klein/5 ring-1 ring-klein" : ""
+                }`}
+                data-testid={`column-${col.key}`}
+                onDragOver={onColDragOver(col.key)}
+                onDragLeave={onColDragLeave}
+                onDrop={onColDrop(col.key)}
+              >
                 {grouped[col.key].length === 0 ? (
                   <div className="border border-dashed border-slate-200 bg-white/60 p-6 text-center text-xs text-slate-400">
-                    No tasks here
+                    {dragOverCol === col.key ? "Drop here" : "No tasks here"}
                   </div>
                 ) : (
                   grouped[col.key].map((t) => (
@@ -163,6 +206,9 @@ export default function EmployeeDashboard() {
                       onDelete={removeTask}
                       onChangeStatus={changeStatus}
                       onLogTime={openTimeLog}
+                      draggable
+                      onDragStart={onDragStart(t)}
+                      onDragEnd={onDragEnd}
                     />
                   ))
                 )}

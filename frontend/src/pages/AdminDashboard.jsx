@@ -4,6 +4,9 @@ import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -22,6 +25,10 @@ export default function AdminDashboard() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [filterAssignee, setFilterAssignee] = useState("all");
+  const [filterPriority, setFilterPriority] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
 
@@ -68,12 +75,31 @@ export default function AdminDashboard() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter((t) =>
-      t.title.toLowerCase().includes(q) ||
-      t.assignee?.name?.toLowerCase().includes(q)
-    );
-  }, [tasks, query]);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return tasks.filter((t) => {
+      if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
+      if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
+      if (filterPriority !== "all" && t.priority !== filterPriority) return false;
+      if (filterStatus !== "all" && t.status !== filterStatus) return false;
+      if (overdueOnly) {
+        if (!t.due_date || t.status === "done") return false;
+        if (new Date(t.due_date) >= today) return false;
+      }
+      return true;
+    });
+  }, [tasks, query, filterAssignee, filterPriority, filterStatus, overdueOnly]);
+
+  const resetFilters = () => {
+    setQuery(""); setFilterAssignee("all"); setFilterPriority("all");
+    setFilterStatus("all"); setOverdueOnly(false);
+  };
+  const activeFilterCount = [
+    query.trim() ? 1 : 0,
+    filterAssignee !== "all" ? 1 : 0,
+    filterPriority !== "all" ? 1 : 0,
+    filterStatus !== "all" ? 1 : 0,
+    overdueOnly ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
 
   const workloadData = useMemo(() => {
     if (!stats) return [];
@@ -218,10 +244,64 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="relative w-full md:w-80">
+          <div className="mb-4 flex flex-wrap items-end gap-3">
+            <div className="relative w-full md:w-72">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input data-testid="admin-task-search" placeholder="Search tasks or assignees…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-10 rounded-md border-slate-300 pl-9" />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Assignee</Label>
+              <Select value={filterAssignee} onValueChange={setFilterAssignee}>
+                <SelectTrigger className="h-10 w-44 rounded-md border-slate-300" data-testid="filter-assignee"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All assignees</SelectItem>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Priority</Label>
+              <Select value={filterPriority} onValueChange={setFilterPriority}>
+                <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-priority"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any priority</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</Label>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any status</SelectItem>
+                  <SelectItem value="todo">To Do</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="done">Done</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-md border border-slate-300 px-3 h-10">
+              <Switch id="overdue-only" checked={overdueOnly} onCheckedChange={setOverdueOnly} data-testid="filter-overdue" />
+              <Label htmlFor="overdue-only" className="text-sm text-slate-700">Overdue only</Label>
+            </div>
+
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="filter-reset" className="h-10 text-slate-600">
+                Clear ({activeFilterCount})
+              </Button>
+            )}
+
+            <div className="ml-auto text-sm text-slate-500" data-testid="filter-result-count">
+              {filtered.length} of {tasks.length} tasks
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
