@@ -11,7 +11,7 @@ export const setToken = (t) => {
 
 export const api = axios.create({
   baseURL: `${BACKEND_URL}/api`,
-  withCredentials: true,
+  withCredentials: false,
 });
 
 // Attach Authorization header automatically (primary carrier; cookies are fallback)
