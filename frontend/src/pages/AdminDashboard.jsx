@@ -11,7 +11,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2 } from "lucide-react";
+import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download } from "lucide-react";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
@@ -139,12 +139,37 @@ export default function AdminDashboard() {
           <h1 className="font-display text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">Team Overview</h1>
           <p className="mt-1 text-sm text-slate-500">Workload, progress and compensation signals across the team.</p>
         </div>
-        <Button onClick={() => { setEditingTask(null); setDialogOpen(true); }} className="h-10 bg-klein hover:bg-kleinDark" data-testid="admin-new-task-button">
-          <Plus size={16} /> New task
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-px overflow-hidden border border-slate-200 bg-slate-200 md:grid-cols-4">
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={async () => {
+              try {
+                const res = await api.get("/admin/tasks/export.csv", { responseType: "blob" });
+                const url = window.URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
+                const a = document.createElement("a");
+                a.href = url;
+                const dispo = res.headers?.["content-disposition"] || "";
+                const m = /filename="?([^";]+)"?/i.exec(dispo);
+                a.download = m ? m[1] : "taskflow-tasks.csv";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                toast.success("CSV downloaded");
+              } catch (e) {
+                toast.error(formatApiError(e));
+              }
+            }}
+            variant="outline"
+            className="h-10 rounded-md border-slate-300"
+            data-testid="admin-export-csv-button"
+          >
+            <Download size={16} /> Export CSV
+          </Button>
+          <Button onClick={() => { setEditingTask(null); setDialogOpen(true); }} className="h-10 bg-klein hover:bg-kleinDark" data-testid="admin-new-task-button">
+            <Plus size={16} /> New task
+          </Button>
+        </div>
+      </div>      <div className="grid grid-cols-2 gap-px overflow-hidden border border-slate-200 bg-slate-200 md:grid-cols-4">
         {[
           [Users, "Employees", stats.totals.employees],
           [ListChecks, "Total tasks", stats.totals.tasks],

@@ -12,7 +12,7 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
@@ -384,6 +384,47 @@ async def admin_dashboard(_: dict = Depends(require_admin)):
         "status_counts": status_counts,
         "per_user": list(per_user.values()),
     }
+
+
+@api.get("/admin/tasks/export.csv")
+async def export_tasks_csv(_: dict = Depends(require_admin)):
+    import csv
+    import io
+
+    tasks = await db.tasks.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    user_ids = list({t.get("assignee_id") for t in tasks if t.get("assignee_id")})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "password_hash": 0}).to_list(500) if user_ids else []
+    user_map = {u["id"]: u for u in users}
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "id", "title", "description", "status", "priority",
+        "due_date", "hours_logged", "assignee_name", "assignee_email",
+        "created_at", "completed_at",
+    ])
+    for t in tasks:
+        a = user_map.get(t.get("assignee_id")) or {}
+        writer.writerow([
+            t.get("id", ""),
+            t.get("title", ""),
+            (t.get("description") or "").replace("\n", " "),
+            t.get("status", ""),
+            t.get("priority", ""),
+            t.get("due_date") or "",
+            f"{float(t.get('hours_logged') or 0):.2f}",
+            a.get("name", ""),
+            a.get("email", ""),
+            t.get("created_at") or "",
+            t.get("completed_at") or "",
+        ])
+
+    filename = f"taskflow-tasks-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ------------------------------------------------------------
