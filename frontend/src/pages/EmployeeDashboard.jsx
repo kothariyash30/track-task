@@ -3,8 +3,12 @@ import { useAuth } from "@/context/AuthContext";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Loader2 } from "lucide-react";
+import { Plus, Search, Loader2, CalendarIcon, X } from "lucide-react";
 import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format, parseISO, isBefore, isAfter, isSameDay, startOfWeek, endOfWeek, startOfToday } from "date-fns";
 import TaskDialog from "@/components/TaskDialog";
 import TimeLogDialog from "@/components/TimeLogDialog";
 import TaskCard from "@/components/TaskCard";
@@ -21,6 +25,8 @@ export default function EmployeeDashboard() {
   const [employees, setEmployees] = useState([user]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [datePreset, setDatePreset] = useState("all"); // all | today | week | overdue | none | custom
+  const [customDate, setCustomDate] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
@@ -152,6 +158,43 @@ export default function EmployeeDashboard() {
               className="h-10 rounded-md border-slate-300 pl-9 md:w-72"
             />
           </div>
+          <Select value={datePreset} onValueChange={(v) => { setDatePreset(v); if (v !== "custom") setCustomDate(null); }}>
+            <SelectTrigger className="h-10 w-40 rounded-md border-slate-300" data-testid="date-filter-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any date</SelectItem>
+              <SelectItem value="today">Due today</SelectItem>
+              <SelectItem value="week">Due this week</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
+              <SelectItem value="none">No due date</SelectItem>
+              <SelectItem value="custom">Custom date…</SelectItem>
+            </SelectContent>
+          </Select>
+          {datePreset === "custom" && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" data-testid="custom-date-trigger" className="h-10 rounded-md border-slate-300 font-normal">
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {customDate ? format(customDate, "PP") : "Pick date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar mode="single" selected={customDate || undefined} onSelect={(d) => setCustomDate(d || null)} />
+              </PopoverContent>
+            </Popover>
+          )}
+          {(datePreset !== "all" || query) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setDatePreset("all"); setCustomDate(null); setQuery(""); }}
+              data-testid="clear-filters-button"
+              className="h-10 text-slate-600"
+            >
+              <X size={14} /> Clear
+            </Button>
+          )}
           <Button onClick={openCreate} className="h-10 bg-klein hover:bg-kleinDark" data-testid="new-task-button">
             <Plus size={16} /> New task
           </Button>
