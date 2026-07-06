@@ -10,6 +10,7 @@ const PRIORITY_COLOR = {
   low: "bg-blue-50 text-blue-700 border-blue-200",
   medium: "bg-amber-50 text-amber-800 border-amber-200",
   high: "bg-red-50 text-red-700 border-red-200",
+  urgent: "bg-red-600 text-white border-red-700",
 };
 
 const NEXT_STATUS = { todo: "in_progress", in_progress: "done", done: "in_progress" };
@@ -81,6 +82,11 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onLog
         <span data-testid={`task-hours-${task.id}`} className="inline-flex items-center gap-1">
           <Clock size={12} /> {Number(task.hours_logged || 0).toFixed(1)}h
         </span>
+        {task.created_at && (
+          <span data-testid={`task-created-${task.id}`} title="System-generated creation timestamp">
+            Created {format(parseISO(task.created_at), "MMM d, yyyy 'at' h:mm a")}
+          </span>
+        )}
         {showAssignee && task.assignee && (
           <span className="ml-auto inline-flex items-center gap-1">
             <span className="grid h-5 w-5 place-items-center rounded-full bg-klein text-[10px] font-semibold text-white">

@@ -19,6 +19,8 @@ export default function TaskDialog({ open, onOpenChange, task, employees = [], c
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
 
+  const isAdminCreating = !task && currentUser?.role === "admin";
+
   useEffect(() => {
     if (open) {
       setForm(task ? {
@@ -28,7 +30,11 @@ export default function TaskDialog({ open, onOpenChange, task, employees = [], c
         status: task.status || "todo",
         due_date: task.due_date || "",
         assignee_id: task.assignee_id || currentUser?.id || "",
-      } : { ...empty, assignee_id: currentUser?.id || "" });
+      } : {
+        ...empty,
+        priority: currentUser?.role === "admin" ? "urgent" : "medium",
+        assignee_id: currentUser?.id || "",
+      });
     }
   }, [open, task, currentUser]);
 
@@ -83,14 +89,18 @@ export default function TaskDialog({ open, onOpenChange, task, employees = [], c
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-[0.18em] text-slate-500">Priority</Label>
-              <Select value={form.priority} onValueChange={(v) => setField("priority", v)}>
+              <Select value={form.priority} onValueChange={(v) => setField("priority", v)} disabled={isAdminCreating}>
                 <SelectTrigger className="rounded-md border-slate-300" data-testid="task-priority-select"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
                   <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
                 </SelectContent>
               </Select>
+              {isAdminCreating && (
+                <p className="text-xs text-slate-500">Admin-created tasks are always Urgent priority.</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-[0.18em] text-slate-500">Status</Label>

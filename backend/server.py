@@ -157,7 +157,7 @@ class LoginBody(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = ""
-    priority: Literal["low", "medium", "high"] = "medium"
+    priority: Literal["low", "medium", "high", "urgent"] = "medium"
     status: Literal["todo", "in_progress", "done"] = "todo"
     due_date: Optional[str] = None  # ISO date string
     assignee_id: Optional[str] = None  # admin can assign; otherwise self
@@ -167,7 +167,7 @@ class TaskUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     title: Optional[str] = None
     description: Optional[str] = None
-    priority: Optional[Literal["low", "medium", "high"]] = None
+    priority: Optional[Literal["low", "medium", "high", "urgent"]] = None
     status: Optional[Literal["todo", "in_progress", "done"]] = None
     due_date: Optional[str] = None
     assignee_id: Optional[str] = None
@@ -271,11 +271,14 @@ async def create_task(body: TaskCreate, user: dict = Depends(get_current_user)):
     assignee = await db.users.find_one({"id": assignee_id})
     if not assignee:
         raise HTTPException(status_code=400, detail="Assignee not found")
+    # Tasks created by an admin are always urgent priority, regardless of what
+    # was submitted, so they surface immediately to whoever they get assigned to.
+    priority = "urgent" if user["role"] == "admin" else body.priority
     task = {
         "id": str(uuid.uuid4()),
         "title": body.title.strip(),
         "description": body.description.strip(),
-        "priority": body.priority,
+        "priority": priority,
         "status": body.status,
         "due_date": body.due_date,
         "assignee_id": assignee_id,

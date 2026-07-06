@@ -20,7 +20,6 @@ const STATUS_COLORS = { todo: "#64748B", in_progress: "#F59E0B", done: "#10B981"
 
 export default function AdminDashboard() {
   const { user } = useAuth();
-  const [stats, setStats] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,12 +34,10 @@ export default function AdminDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, t, u] = await Promise.all([
-        api.get("/admin/dashboard"),
+      const [t, u] = await Promise.all([
         api.get("/tasks", { params: { scope: "all" } }),
         api.get("/users"),
       ]);
-      setStats(s.data);
       setTasks(t.data);
       setEmployees(u.data);
     } catch (e) {
@@ -73,6 +70,9 @@ export default function AdminDashboard() {
     } catch (e) { toast.error(formatApiError(e)); }
   };
 
+  // Filtering drives everything below: the KPI tiles, both charts, and the
+  // employee roster table all recompute from this same filtered task set so
+  // they stay in sync with whatever the admin has selected.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -101,8 +101,39 @@ export default function AdminDashboard() {
     overdueOnly ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
+  const stats = useMemo(() => {
+    const perUserMap = {};
+    employees.forEach((u) => {
+      perUserMap[u.id] = {
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        total_tasks: 0, todo: 0, in_progress: 0, done: 0, hours_logged: 0,
+      };
+    });
+    const status_counts = { todo: 0, in_progress: 0, done: 0 };
+    let hours_logged = 0;
+    for (const t of filtered) {
+      status_counts[t.status] = (status_counts[t.status] || 0) + 1;
+      hours_logged += Number(t.hours_logged || 0);
+      const pu = perUserMap[t.assignee_id];
+      if (pu) {
+        pu.total_tasks += 1;
+        pu[t.status] = (pu[t.status] || 0) + 1;
+        pu.hours_logged += Number(t.hours_logged || 0);
+      }
+    }
+    return {
+      totals: {
+        tasks: filtered.length,
+        employees: employees.filter((e) => e.role === "employee").length,
+        completed: status_counts.done,
+        hours_logged,
+      },
+      status_counts,
+      per_user: Object.values(perUserMap),
+    };
+  }, [filtered, employees]);
+
   const workloadData = useMemo(() => {
-    if (!stats) return [];
     return stats.per_user
       .filter((u) => u.role !== "admin" || u.total_tasks > 0)
       .map((u) => ({
@@ -115,7 +146,6 @@ export default function AdminDashboard() {
   }, [stats]);
 
   const statusPie = useMemo(() => {
-    if (!stats) return [];
     return [
       { name: "To Do", value: stats.status_counts.todo || 0, key: "todo" },
       { name: "In Progress", value: stats.status_counts.in_progress || 0, key: "in_progress" },
@@ -123,7 +153,7 @@ export default function AdminDashboard() {
     ];
   }, [stats]);
 
-  if (loading || !stats) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-slate-500">
         <Loader2 className="mr-2 animate-spin" size={16} /> Loading dashboard…
@@ -169,7 +199,71 @@ export default function AdminDashboard() {
             <Plus size={16} /> New task
           </Button>
         </div>
-      </div>      <div className="grid grid-cols-2 gap-px overflow-hidden border border-slate-200 bg-slate-200 md:grid-cols-4">
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 border border-slate-200 bg-white p-4">
+        <div className="relative w-full md:w-72">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input data-testid="admin-task-search" placeholder="Search tasks or assignees…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-10 rounded-md border-slate-300 pl-9" />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Assignee</Label>
+          <Select value={filterAssignee} onValueChange={setFilterAssignee}>
+            <SelectTrigger className="h-10 w-44 rounded-md border-slate-300" data-testid="filter-assignee"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All assignees</SelectItem>
+              {employees.map((e) => (
+                <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Priority</Label>
+          <Select value={filterPriority} onValueChange={setFilterPriority}>
+            <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-priority"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any priority</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</Label>
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any status</SelectItem>
+              <SelectItem value="todo">To Do</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="done">Done</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-md border border-slate-300 px-3 h-10">
+          <Switch id="overdue-only" checked={overdueOnly} onCheckedChange={setOverdueOnly} data-testid="filter-overdue" />
+          <Label htmlFor="overdue-only" className="text-sm text-slate-700">Overdue only</Label>
+        </div>
+
+        {activeFilterCount > 0 && (
+          <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="filter-reset" className="h-10 text-slate-600">
+            Clear ({activeFilterCount})
+          </Button>
+        )}
+
+        <div className="ml-auto text-sm text-slate-500" data-testid="filter-result-count">
+          {filtered.length} of {tasks.length} tasks
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px overflow-hidden border border-slate-200 bg-slate-200 md:grid-cols-4">
         {[
           [Users, "Employees", stats.totals.employees],
           [ListChecks, "Total tasks", stats.totals.tasks],
@@ -269,66 +363,6 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-4">
-          <div className="mb-4 flex flex-wrap items-end gap-3">
-            <div className="relative w-full md:w-72">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <Input data-testid="admin-task-search" placeholder="Search tasks or assignees…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-10 rounded-md border-slate-300 pl-9" />
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Assignee</Label>
-              <Select value={filterAssignee} onValueChange={setFilterAssignee}>
-                <SelectTrigger className="h-10 w-44 rounded-md border-slate-300" data-testid="filter-assignee"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All assignees</SelectItem>
-                  {employees.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Priority</Label>
-              <Select value={filterPriority} onValueChange={setFilterPriority}>
-                <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-priority"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Any priority</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-status"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Any status</SelectItem>
-                  <SelectItem value="todo">To Do</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="done">Done</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2 rounded-md border border-slate-300 px-3 h-10">
-              <Switch id="overdue-only" checked={overdueOnly} onCheckedChange={setOverdueOnly} data-testid="filter-overdue" />
-              <Label htmlFor="overdue-only" className="text-sm text-slate-700">Overdue only</Label>
-            </div>
-
-            {activeFilterCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="filter-reset" className="h-10 text-slate-600">
-                Clear ({activeFilterCount})
-              </Button>
-            )}
-
-            <div className="ml-auto text-sm text-slate-500" data-testid="filter-result-count">
-              {filtered.length} of {tasks.length} tasks
-            </div>
-          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.length === 0 ? (
               <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
