@@ -277,53 +277,56 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="border border-slate-200 bg-white p-6 lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-display text-lg font-semibold">Workload by employee</h3>
-            <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Tasks per status</span>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={workloadData} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
-                <CartesianGrid stroke="#E2E8F0" strokeDasharray="2 2" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="#94A3B8" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#94A3B8" allowDecimals={false} />
-                <Tooltip contentStyle={{ borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="To Do" stackId="a" fill="#94A3B8" />
-                <Bar dataKey="In Progress" stackId="a" fill="#F59E0B" />
-                <Bar dataKey="Done" stackId="a" fill="#10B981" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="border border-slate-200 bg-white p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-display text-lg font-semibold">Status breakdown</h3>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={statusPie} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} stroke="#fff">
-                  {statusPie.map((s) => (
-                    <Cell key={s.key} fill={STATUS_COLORS[s.key]} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      <Tabs defaultValue="employees" className="w-full">
+      <Tabs defaultValue="reports" className="w-full">
         <TabsList className="rounded-md border border-slate-200 bg-white p-1">
+          <TabsTrigger value="reports" data-testid="tab-reports">Reports</TabsTrigger>
           <TabsTrigger value="employees" data-testid="tab-employees">Employees</TabsTrigger>
           <TabsTrigger value="tasks" data-testid="tab-all-tasks">All tasks</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="reports" className="mt-4">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="border border-slate-200 bg-white p-6 lg:col-span-2">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-display text-lg font-semibold">Workload by employee</h3>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Tasks per status</span>
+              </div>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={workloadData} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
+                    <CartesianGrid stroke="#E2E8F0" strokeDasharray="2 2" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="#94A3B8" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="#94A3B8" allowDecimals={false} />
+                    <Tooltip contentStyle={{ borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="To Do" stackId="a" fill="#94A3B8" />
+                    <Bar dataKey="In Progress" stackId="a" fill="#F59E0B" />
+                    <Bar dataKey="Done" stackId="a" fill="#10B981" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="border border-slate-200 bg-white p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-display text-lg font-semibold">Status breakdown</h3>
+              </div>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={statusPie} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} stroke="#fff">
+                      {statusPie.map((s) => (
+                        <Cell key={s.key} fill={STATUS_COLORS[s.key]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="employees" className="mt-4 border border-slate-200 bg-white">
           <table className="w-full text-sm">
