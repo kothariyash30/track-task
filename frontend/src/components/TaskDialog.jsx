@@ -92,7 +92,7 @@ export default function TaskDialog({ open, onOpenChange, task, employees = [], c
               <Select value={form.priority} onValueChange={(v) => setField("priority", v)} disabled={isAdminCreating}>
                 <SelectTrigger className="rounded-md border-slate-300" data-testid="task-priority-select"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="urgent">Urgent</SelectItem>
+                  {currentUser?.role === "admin" && <SelectItem value="urgent">Urgent</SelectItem>}
                   <SelectItem value="high">High</SelectItem>
                   <SelectItem value="medium">Medium</SelectItem>
                   <SelectItem value="low">Low</SelectItem>
@@ -100,6 +100,9 @@ export default function TaskDialog({ open, onOpenChange, task, employees = [], c
               </Select>
               {isAdminCreating && (
                 <p className="text-xs text-slate-500">Admin-created tasks are always Urgent priority.</p>
+              )}
+              {currentUser?.role !== "admin" && (
+                <p className="text-xs text-slate-500">Only admins can set Urgent priority.</p>
               )}
             </div>
             <div className="space-y-2">

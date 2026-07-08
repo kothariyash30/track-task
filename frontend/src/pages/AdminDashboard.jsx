@@ -11,10 +11,12 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download } from "lucide-react";
+import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
+import ResetPasswordDialog from "@/components/ResetPasswordDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const STATUS_COLORS = { todo: "#64748B", in_progress: "#F59E0B", done: "#10B981" };
 
@@ -30,6 +32,8 @@ export default function AdminDashboard() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
+  const [viewingEmployee, setViewingEmployee] = useState(null);
+  const [resettingUser, setResettingUser] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +70,17 @@ export default function AdminDashboard() {
       await api.delete(`/tasks/${task.id}`);
       setTasks((prev) => prev.filter((t) => t.id !== task.id));
       toast.success("Task deleted");
+      load();
+    } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const removeEmployee = async (employee) => {
+    if (!window.confirm(`Delete "${employee.name}"? This also removes their tasks and time logs.`)) return;
+    try {
+      await api.delete(`/users/${employee.id}`);
+      setEmployees((prev) => prev.filter((e) => e.id !== employee.id));
+      setTasks((prev) => prev.filter((t) => t.assignee_id !== employee.id));
+      toast.success("Employee deleted");
       load();
     } catch (e) { toast.error(formatApiError(e)); }
   };
@@ -338,11 +353,17 @@ export default function AdminDashboard() {
                 <th className="px-4 py-3 font-medium">Done</th>
                 <th className="px-4 py-3 font-medium">In Progress</th>
                 <th className="px-4 py-3 font-medium">Hours</th>
+                <th className="px-4 py-3 font-medium" />
               </tr>
             </thead>
             <tbody>
               {stats.per_user.map((u) => (
-                <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50" data-testid={`employee-row-${u.id}`}>
+                <tr
+                  key={u.id}
+                  onClick={() => setViewingEmployee(u)}
+                  className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                  data-testid={`employee-row-${u.id}`}
+                >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="grid h-8 w-8 place-items-center rounded-full bg-klein text-xs font-semibold text-white">
@@ -359,6 +380,32 @@ export default function AdminDashboard() {
                   <td className="px-4 py-3 font-mono text-emerald-700">{u.done}</td>
                   <td className="px-4 py-3 font-mono text-amber-700">{u.in_progress}</td>
                   <td className="px-4 py-3 font-mono">{Number(u.hours_logged || 0).toFixed(1)}h</td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-400 hover:text-slate-700"
+                        onClick={(e) => { e.stopPropagation(); setResettingUser(u); }}
+                        data-testid={`employee-reset-password-${u.id}`}
+                        title="Reset password"
+                      >
+                        <KeyRound size={14} />
+                      </Button>
+                      {u.role === "employee" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-slate-400 hover:text-red-600"
+                          onClick={(e) => { e.stopPropagation(); removeEmployee(u); }}
+                          data-testid={`employee-delete-${u.id}`}
+                          title="Delete employee"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -393,6 +440,31 @@ export default function AdminDashboard() {
         employees={employees}
         currentUser={user}
         onSaved={(t) => { upsert(t); load(); }}
+      />
+
+      <Dialog open={Boolean(viewingEmployee)} onOpenChange={(o) => !o && setViewingEmployee(null)}>
+        <DialogContent className="rounded-md border-slate-200 sm:max-w-2xl" data-testid="employee-tasks-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-display">{viewingEmployee?.name}'s tasks</DialogTitle>
+          </DialogHeader>
+          <div className="grid max-h-[60vh] grid-cols-1 gap-4 overflow-y-auto sm:grid-cols-2">
+            {viewingEmployee && tasks.filter((t) => t.assignee_id === viewingEmployee.id).length === 0 ? (
+              <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+                No tasks assigned to this employee.
+              </div>
+            ) : (
+              viewingEmployee && tasks
+                .filter((t) => t.assignee_id === viewingEmployee.id)
+                .map((t) => <TaskCard key={t.id} task={t} canEdit={false} />)
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ResetPasswordDialog
+        open={Boolean(resettingUser)}
+        onOpenChange={(o) => !o && setResettingUser(null)}
+        user={resettingUser}
       />
     </div>
   );

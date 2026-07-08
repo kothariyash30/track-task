@@ -178,6 +178,10 @@ class TimeLogCreate(BaseModel):
     note: str = ""
 
 
+class ResetPasswordBody(BaseModel):
+    new_password: str = Field(min_length=6, max_length=120)
+
+
 # ------------------------------------------------------------
 # Auth endpoints
 # ------------------------------------------------------------
@@ -236,6 +240,31 @@ async def list_users(_: dict = Depends(require_admin)):
     return users
 
 
+@api.delete("/users/{user_id}")
+async def delete_user(user_id: str, _: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target["role"] != "employee":
+        raise HTTPException(status_code=403, detail="Only employee accounts can be deleted")
+    task_ids = [t["id"] for t in await db.tasks.find({"assignee_id": user_id}, {"id": 1}).to_list(2000)]
+    if task_ids:
+        await db.time_logs.delete_many({"task_id": {"$in": task_ids}})
+        await db.tasks.delete_many({"assignee_id": user_id})
+    await db.time_logs.delete_many({"user_id": user_id})
+    await db.users.delete_one({"id": user_id})
+    return {"ok": True}
+
+
+@api.post("/users/{user_id}/reset-password")
+async def reset_password(user_id: str, body: ResetPasswordBody, _: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"id": user_id}, {"$set": {"password_hash": hash_password(body.new_password)}})
+    return {"ok": True}
+
+
 # ------------------------------------------------------------
 # Tasks
 # ------------------------------------------------------------
@@ -271,6 +300,8 @@ async def create_task(body: TaskCreate, user: dict = Depends(get_current_user)):
     assignee = await db.users.find_one({"id": assignee_id})
     if not assignee:
         raise HTTPException(status_code=400, detail="Assignee not found")
+    if user["role"] != "admin" and body.priority == "urgent":
+        raise HTTPException(status_code=403, detail="Only admin can create urgent tasks")
     # Tasks created by an admin are always urgent priority, regardless of what
     # was submitted, so they surface immediately to whoever they get assigned to.
     priority = "urgent" if user["role"] == "admin" else body.priority
@@ -307,6 +338,8 @@ async def update_task(task_id: str, body: TaskUpdate, user: dict = Depends(get_c
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if "assignee_id" in updates and user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can reassign")
+    if updates.get("priority") == "urgent" and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can set urgent priority")
 
     if updates.get("status") == "done" and task.get("status") != "done":
         updates["completed_at"] = datetime.now(timezone.utc).isoformat()
