@@ -7,15 +7,19 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound } from "lucide-react";
+import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, CalendarIcon, X, History } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
 import ResetPasswordDialog from "@/components/ResetPasswordDialog";
+import AuditLogDialog from "@/components/AuditLogDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const STATUS_COLORS = { todo: "#64748B", in_progress: "#F59E0B", done: "#10B981" };
@@ -24,34 +28,49 @@ export default function AdminDashboard() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [timeLogs, setTimeLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  // Defaults to today so admins land on "what moved to in progress today" rather than every task ever created.
+  const [filterInProgressDate, setFilterInProgressDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [viewingEmployee, setViewingEmployee] = useState(null);
   const [resettingUser, setResettingUser] = useState(null);
+  const [historyTask, setHistoryTask] = useState(null);
+  // Tracked explicitly (not an uncontrolled Tabs defaultValue) so the active tab survives
+  // the full-page reload state that follows every create/edit/delete/status-change action.
+  const [activeTab, setActiveTab] = useState("reports");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
-      const [t, u] = await Promise.all([
+      const [t, u, l] = await Promise.all([
         api.get("/tasks", { params: { scope: "all" } }),
         api.get("/users"),
+        api.get("/admin/time-logs"),
       ]);
       setTasks(t.data);
       setEmployees(u.data);
+      setTimeLogs(l.data);
     } catch (e) {
-      toast.error(formatApiError(e));
+      // Background refreshes fail silently rather than repeatedly toasting every 20s.
+      if (!silent) toast.error(formatApiError(e));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Keep Reports, Employees, and All tasks in sync with the server without a manual refresh.
+    const interval = setInterval(() => load({ silent: true }), 20_000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const upsert = (saved) => setTasks((prev) => {
     const idx = prev.findIndex((x) => x.id === saved.id);
@@ -96,25 +115,57 @@ export default function AdminDashboard() {
       if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
       if (filterPriority !== "all" && t.priority !== filterPriority) return false;
       if (filterStatus !== "all" && t.status !== filterStatus) return false;
+      if (filterInProgressDate && t.in_progress_at?.slice(0, 10) !== filterInProgressDate) return false;
       if (overdueOnly) {
         if (!t.due_date || t.status === "done") return false;
         if (new Date(t.due_date) >= today) return false;
       }
       return true;
     });
-  }, [tasks, query, filterAssignee, filterPriority, filterStatus, overdueOnly]);
+  }, [tasks, query, filterAssignee, filterPriority, filterStatus, filterInProgressDate, overdueOnly]);
+
+  // Same filters as `filtered`, minus due-date/overdue: completion date and log date are about
+  // when work happened, not a task's due date, so the "today" KPIs below stay accurate even
+  // when the due-date filter (which defaults to today) narrows what's shown in the tiles.
+  const filteredForActivity = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
+      if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
+      if (filterPriority !== "all" && t.priority !== filterPriority) return false;
+      if (filterStatus !== "all" && t.status !== filterStatus) return false;
+      return true;
+    });
+  }, [tasks, query, filterAssignee, filterPriority, filterStatus]);
 
   const resetFilters = () => {
     setQuery(""); setFilterAssignee("all"); setFilterPriority("all");
-    setFilterStatus("all"); setOverdueOnly(false);
+    setFilterStatus("all"); setFilterInProgressDate(""); setOverdueOnly(false);
   };
   const activeFilterCount = [
     query.trim() ? 1 : 0,
     filterAssignee !== "all" ? 1 : 0,
     filterPriority !== "all" ? 1 : 0,
     filterStatus !== "all" ? 1 : 0,
+    filterInProgressDate ? 1 : 0,
     overdueOnly ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
+
+  const todayISO = format(new Date(), "yyyy-MM-dd");
+
+  // "Completed today" / "Hours logged today" reflect actual activity that happened today —
+  // using completed_at (set when a task's status flips to done) and time-log timestamps —
+  // rather than lifetime totals, and still respect whatever filters are active.
+  const completedToday = useMemo(() => {
+    return filteredForActivity.filter((t) => t.completed_at && t.completed_at.slice(0, 10) === todayISO).length;
+  }, [filteredForActivity, todayISO]);
+
+  const hoursLoggedToday = useMemo(() => {
+    const activityTaskIds = new Set(filteredForActivity.map((t) => t.id));
+    return timeLogs
+      .filter((l) => activityTaskIds.has(l.task_id) && l.created_at && l.created_at.slice(0, 10) === todayISO)
+      .reduce((sum, l) => sum + Number(l.hours || 0), 0);
+  }, [filteredForActivity, timeLogs, todayISO]);
 
   const stats = useMemo(() => {
     const perUserMap = {};
@@ -159,6 +210,16 @@ export default function AdminDashboard() {
         Hours: Number((u.hours_logged || 0).toFixed(1)),
       }));
   }, [stats]);
+
+  const urgentTasks = useMemo(() => filtered.filter((t) => t.priority === "urgent"), [filtered]);
+  // Urgent tasks get their own table (above), so the tile grid only shows the rest — avoids showing them twice.
+  // Sorted alphabetically by assignee name by default so tiles group naturally by employee.
+  const nonUrgentTiles = useMemo(() => {
+    return filtered
+      .filter((t) => t.priority !== "urgent")
+      .slice()
+      .sort((a, b) => (a.assignee?.name || "").localeCompare(b.assignee?.name || ""));
+  }, [filtered]);
 
   const statusPie = useMemo(() => {
     return [
@@ -262,6 +323,40 @@ export default function AdminDashboard() {
           </Select>
         </div>
 
+        <div className="flex flex-col gap-1">
+          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">In progress date</Label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                data-testid="filter-in-progress-date"
+                className="h-10 w-40 justify-start rounded-md border-slate-300 text-left font-normal"
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {filterInProgressDate ? format(parseISO(filterInProgressDate), "PP") : "Any date"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+              <Calendar
+                mode="single"
+                selected={filterInProgressDate ? parseISO(filterInProgressDate) : undefined}
+                onSelect={(d) => setFilterInProgressDate(d ? format(d, "yyyy-MM-dd") : "")}
+              />
+              {filterInProgressDate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setFilterInProgressDate("")}
+                  className="w-full rounded-none border-t border-slate-200 text-slate-600"
+                  data-testid="filter-in-progress-date-clear"
+                >
+                  <X size={14} /> Clear date
+                </Button>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
+
         <div className="flex items-center gap-2 rounded-md border border-slate-300 px-3 h-10">
           <Switch id="overdue-only" checked={overdueOnly} onCheckedChange={setOverdueOnly} data-testid="filter-overdue" />
           <Label htmlFor="overdue-only" className="text-sm text-slate-700">Overdue only</Label>
@@ -282,8 +377,8 @@ export default function AdminDashboard() {
         {[
           [Users, "Employees", stats.totals.employees],
           [ListChecks, "Total tasks", stats.totals.tasks],
-          [CheckCircle2, "Completed", stats.totals.completed],
-          [Clock, "Hours logged", stats.totals.hours_logged.toFixed(1)],
+          [CheckCircle2, "Completed today", completedToday],
+          [Clock, "Hours logged today", hoursLoggedToday.toFixed(1)],
         ].map(([Icon, k, v]) => (
           <div key={k} className="bg-white px-5 py-4" data-testid={`kpi-${k.toLowerCase().replace(/\s/g, "-")}`}>
             <div className="flex items-center gap-2 text-slate-500"><Icon size={14} /> <span className="text-xs uppercase tracking-[0.18em]">{k}</span></div>
@@ -292,7 +387,7 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <Tabs defaultValue="reports" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="rounded-md border border-slate-200 bg-white p-1">
           <TabsTrigger value="reports" data-testid="tab-reports">Reports</TabsTrigger>
           <TabsTrigger value="employees" data-testid="tab-employees">Employees</TabsTrigger>
@@ -413,22 +508,71 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.length === 0 ? (
-              <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-                No tasks match the filter.
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="border border-slate-200 bg-white lg:col-span-1">
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                <h3 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Urgent tasks</h3>
+                <span className="text-xs text-slate-400">{urgentTasks.length}</span>
               </div>
-            ) : filtered.map((t) => (
-              <TaskCard
-                key={t.id}
-                task={t}
-                onEdit={(task) => { setEditingTask(task); setDialogOpen(true); }}
-                onDelete={removeTask}
-                onChangeStatus={changeStatus}
-                onLogTime={() => toast.info("Use the My Tasks page to log time on your own tasks.")}
-                showAssignee
-              />
-            ))}
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Task</th>
+                    <th className="px-4 py-3 font-medium">In progress since</th>
+                    <th className="px-4 py-3 font-medium">Assigned to</th>
+                    <th className="px-4 py-3 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {urgentTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
+                        No urgent tasks.
+                      </td>
+                    </tr>
+                  ) : urgentTasks.map((t) => (
+                    <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50" data-testid={`urgent-task-row-${t.id}`}>
+                      <td className="px-4 py-3 font-medium text-slate-900">{t.title}</td>
+                      <td className="px-4 py-3 text-slate-600">{t.in_progress_at ? format(parseISO(t.in_progress_at), "MMM d, yyyy 'at' h:mm a") : "Not started"}</td>
+                      <td className="px-4 py-3 text-slate-600">{t.assignee?.name || "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-slate-400 hover:text-slate-700"
+                          onClick={() => setHistoryTask(t)}
+                          data-testid={`urgent-task-history-${t.id}`}
+                          title="View history"
+                        >
+                          <History size={14} />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-1 gap-[11px] sm:grid-cols-2 xl:grid-cols-3 lg:col-span-2">
+              {nonUrgentTiles.length === 0 ? (
+                <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+                  No tasks match the filter.
+                </div>
+              ) : nonUrgentTiles.map((t) => (
+                <TaskCard
+                  key={t.id}
+                  task={t}
+                  onEdit={(task) => { setEditingTask(task); setDialogOpen(true); }}
+                  onDelete={removeTask}
+                  onChangeStatus={changeStatus}
+                  onLogTime={() => toast.info("Use the My Tasks page to log time on your own tasks.")}
+                  onViewHistory={setHistoryTask}
+                  showAssignee
+                  compact
+                  showInProgressDate
+                />
+              ))}
+            </div>
           </div>
         </TabsContent>
       </Tabs>
@@ -465,6 +609,12 @@ export default function AdminDashboard() {
         open={Boolean(resettingUser)}
         onOpenChange={(o) => !o && setResettingUser(null)}
         user={resettingUser}
+      />
+
+      <AuditLogDialog
+        open={Boolean(historyTask)}
+        onOpenChange={(o) => !o && setHistoryTask(null)}
+        task={historyTask}
       />
     </div>
   );

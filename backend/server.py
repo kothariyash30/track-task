@@ -250,6 +250,7 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
     task_ids = [t["id"] for t in await db.tasks.find({"assignee_id": user_id}, {"id": 1}).to_list(2000)]
     if task_ids:
         await db.time_logs.delete_many({"task_id": {"$in": task_ids}})
+        await db.audit_logs.delete_many({"task_id": {"$in": task_ids}})
         await db.tasks.delete_many({"assignee_id": user_id})
     await db.time_logs.delete_many({"user_id": user_id})
     await db.users.delete_one({"id": user_id})
@@ -291,6 +292,21 @@ async def list_tasks(request: Request, scope: str = "mine", user: dict = Depends
     return tasks
 
 
+TRACKED_TASK_FIELDS = ["title", "status", "priority", "due_date", "assignee_id"]
+
+
+async def _record_audit(task_id: str, actor: dict, action: str, changes: Optional[List[dict]] = None) -> None:
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "task_id": task_id,
+        "actor_id": actor["id"],
+        "actor_name": actor["name"],
+        "action": action,
+        "changes": changes or [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 @api.post("/tasks")
 async def create_task(body: TaskCreate, user: dict = Depends(get_current_user)):
     assignee_id = body.assignee_id or user["id"]
@@ -318,10 +334,18 @@ async def create_task(body: TaskCreate, user: dict = Depends(get_current_user)):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "completed_at": None,
+        "in_progress_at": None,
     }
     if task["status"] == "done":
         task["completed_at"] = task["updated_at"]
+    if task["status"] == "in_progress":
+        task["in_progress_at"] = task["updated_at"]
     await db.tasks.insert_one(task)
+    await _record_audit(task["id"], user, "created", [
+        {"field": "status", "from": None, "to": task["status"]},
+        {"field": "priority", "from": None, "to": task["priority"]},
+        {"field": "assignee_id", "from": None, "to": assignee["name"]},
+    ])
     task.pop("_id", None)
     enriched = await _enrich_tasks([task])
     return enriched[0]
@@ -345,6 +369,21 @@ async def update_task(task_id: str, body: TaskUpdate, user: dict = Depends(get_c
         updates["completed_at"] = datetime.now(timezone.utc).isoformat()
     if updates.get("status") and updates["status"] != "done":
         updates["completed_at"] = None
+    if updates.get("status") == "in_progress" and task.get("status") != "in_progress":
+        updates["in_progress_at"] = datetime.now(timezone.utc).isoformat()
+
+    changes = []
+    for field in TRACKED_TASK_FIELDS:
+        if field in updates and updates[field] != task.get(field):
+            changes.append({"field": field, "from": task.get(field), "to": updates[field]})
+    if changes:
+        for c in changes:
+            if c["field"] == "assignee_id":
+                old_user = await db.users.find_one({"id": c["from"]}) if c["from"] else None
+                new_user = await db.users.find_one({"id": c["to"]}) if c["to"] else None
+                c["from"] = old_user["name"] if old_user else c["from"]
+                c["to"] = new_user["name"] if new_user else c["to"]
+        await _record_audit(task_id, user, "updated", changes)
 
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.tasks.update_one({"id": task_id}, {"$set": updates})
@@ -362,7 +401,17 @@ async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Not allowed")
     await db.tasks.delete_one({"id": task_id})
     await db.time_logs.delete_many({"task_id": task_id})
+    await db.audit_logs.delete_many({"task_id": task_id})
     return {"ok": True}
+
+
+@api.get("/tasks/{task_id}/audit-log")
+async def get_task_audit_log(task_id: str, _: dict = Depends(require_admin)):
+    task = await db.tasks.find_one({"id": task_id})
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    logs = await db.audit_logs.find({"task_id": task_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return logs
 
 
 @api.post("/tasks/{task_id}/time-logs")
@@ -442,6 +491,12 @@ async def admin_dashboard(_: dict = Depends(require_admin)):
         "status_counts": status_counts,
         "per_user": list(per_user.values()),
     }
+
+
+@api.get("/admin/time-logs")
+async def list_all_time_logs(_: dict = Depends(require_admin)):
+    logs = await db.time_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    return logs
 
 
 @api.get("/admin/tasks/export.csv")
@@ -573,6 +628,7 @@ async def on_startup():
         await db.tasks.create_index("assignee_id")
         await db.tasks.create_index("status")
         await db.time_logs.create_index("task_id")
+        await db.audit_logs.create_index("task_id")
         await seed_users()
         await seed_sample_tasks()
         logger.info("Startup complete: indexes ensured and seeds run.")
