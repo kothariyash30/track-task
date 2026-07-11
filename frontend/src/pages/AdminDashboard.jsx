@@ -132,17 +132,16 @@ export default function AdminDashboard() {
       if (filterPriority !== "all" && t.priority !== filterPriority) return false;
       if (filterStatuses.length > 0 && !filterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
       if (filterInProgressRange.from || filterInProgressRange.to) {
-        // Scoped strictly to in-progress/not-started work: not-started tasks always pass
-        // (there's nothing to date-filter yet); in-progress tasks are checked against the
-        // range (excluded if they predate in_progress_at tracking and have no timestamp);
-        // done (or any other status) tasks are hidden while a date range is active.
-        if (t.status === "in_progress") {
-          const d = t.in_progress_at?.slice(0, 10);
-          if (!d) return false;
+        // Done work is always hidden while a date range is active — the filter is scoped
+        // to in-progress/not-started work only. Below that, "not started" is defined the
+        // same way the status filter defines it (no in_progress_at yet) so the two stay
+        // consistent: a task the "Not Started" checkbox matches never gets hidden by the
+        // date range, even if it's a legacy in_progress task from before this was tracked.
+        if (t.status === "done") return false;
+        const d = t.in_progress_at?.slice(0, 10);
+        if (d) {
           if (filterInProgressRange.from && d < filterInProgressRange.from) return false;
           if (filterInProgressRange.to && d > filterInProgressRange.to) return false;
-        } else if (t.status !== "todo") {
-          return false;
         }
       }
       if (overdueOnly) {

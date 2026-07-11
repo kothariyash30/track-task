@@ -617,6 +617,7 @@ async def seed_sample_tasks():
             "created_at": (now - timedelta(days=i)).isoformat(),
             "updated_at": (now - timedelta(days=i)).isoformat(),
             "completed_at": (now - timedelta(days=i)).isoformat() if s["status"] == "done" else None,
+            "in_progress_at": (now - timedelta(days=i)).isoformat() if s["status"] in ("in_progress", "done") else None,
         }
         await db.tasks.insert_one(task)
 
