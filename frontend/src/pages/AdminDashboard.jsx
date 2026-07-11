@@ -636,6 +636,16 @@ export default function AdminDashboard() {
                           >
                             <History size={14} />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-slate-400 hover:text-red-600"
+                            onClick={() => removeTask(t)}
+                            data-testid={`urgent-task-delete-${t.id}`}
+                            title="Delete task"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
                         </div>
                       </td>
                     </tr>
