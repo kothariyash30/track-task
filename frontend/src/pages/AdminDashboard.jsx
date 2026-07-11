@@ -25,10 +25,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 
 const STATUS_COLORS = { todo: "#64748B", in_progress: "#F59E0B", done: "#10B981" };
 const STATUS_OPTIONS = [
+  { value: "not_started", label: "Not Started" },
   { value: "todo", label: "To Do" },
   { value: "in_progress", label: "In Progress" },
   { value: "done", label: "Done" },
 ];
+// "Not Started" isn't a real status field value — it means a task has never moved to
+// in_progress (in_progress_at is unset), which is how the urgent tasks table already
+// labels them. Selecting it lets admins isolate untouched urgent tasks specifically.
+const taskMatchesStatusFilter = (task, statusValue) =>
+  statusValue === "not_started" ? !task.in_progress_at : task.status === statusValue;
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -124,7 +130,7 @@ export default function AdminDashboard() {
       if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
       if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
       if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-      if (filterStatuses.length > 0 && !filterStatuses.includes(t.status)) return false;
+      if (filterStatuses.length > 0 && !filterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
       if (filterInProgressRange.from || filterInProgressRange.to) {
         const d = t.in_progress_at?.slice(0, 10);
         if (!d) return false;
@@ -148,7 +154,7 @@ export default function AdminDashboard() {
       if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
       if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
       if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-      if (filterStatuses.length > 0 && !filterStatuses.includes(t.status)) return false;
+      if (filterStatuses.length > 0 && !filterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
       return true;
     });
   }, [tasks, query, filterAssignee, filterPriority, filterStatuses]);
