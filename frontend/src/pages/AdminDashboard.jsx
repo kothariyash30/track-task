@@ -11,10 +11,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, CalendarIcon, X, History, Pencil } from "lucide-react";
+import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, CalendarIcon, X, History, Pencil, MoreVertical } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
@@ -615,38 +618,29 @@ export default function AdminDashboard() {
                       <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.in_progress_at ? format(parseISO(t.in_progress_at), "MMM d, h:mm a") : "Not started"}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.assignee?.name || "—"}</td>
                       <td className="px-3 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 text-slate-400 hover:text-slate-700"
-                            onClick={() => { setEditingTask(t); setDialogOpen(true); }}
-                            data-testid={`urgent-task-edit-${t.id}`}
-                            title="Edit task"
-                          >
-                            <Pencil size={14} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 text-slate-400 hover:text-slate-700"
-                            onClick={() => setHistoryTask(t)}
-                            data-testid={`urgent-task-history-${t.id}`}
-                            title="View history"
-                          >
-                            <History size={14} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 text-slate-400 hover:text-red-600"
-                            onClick={() => removeTask(t)}
-                            data-testid={`urgent-task-delete-${t.id}`}
-                            title="Delete task"
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 text-slate-400 hover:text-slate-700"
+                              data-testid={`urgent-task-menu-${t.id}`}
+                            >
+                              <MoreVertical size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem onClick={() => { setEditingTask(t); setDialogOpen(true); }} data-testid={`urgent-task-edit-${t.id}`}>
+                              <Pencil size={14} /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setHistoryTask(t)} data-testid={`urgent-task-history-${t.id}`}>
+                              <History size={14} /> View history
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => removeTask(t)} className="text-red-600 focus:text-red-600" data-testid={`urgent-task-delete-${t.id}`}>
+                              <Trash2 size={14} /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))}
