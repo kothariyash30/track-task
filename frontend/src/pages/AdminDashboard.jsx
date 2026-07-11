@@ -9,11 +9,12 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, CalendarIcon, X, History } from "lucide-react";
+import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, CalendarIcon, X, History, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
@@ -23,6 +24,11 @@ import AuditLogDialog from "@/components/AuditLogDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const STATUS_COLORS = { todo: "#64748B", in_progress: "#F59E0B", done: "#10B981" };
+const STATUS_OPTIONS = [
+  { value: "todo", label: "To Do" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "done", label: "Done" },
+];
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -33,9 +39,13 @@ export default function AdminDashboard() {
   const [query, setQuery] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  // Defaults to today so admins land on "what moved to in progress today" rather than every task ever created.
-  const [filterInProgressDate, setFilterInProgressDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  // Empty array = no status filter applied (matches every status).
+  const [filterStatuses, setFilterStatuses] = useState([]);
+  // Defaults to today->today so admins land on "what moved to in progress today" rather than every task ever created.
+  const [filterInProgressRange, setFilterInProgressRange] = useState(() => {
+    const t = format(new Date(), "yyyy-MM-dd");
+    return { from: t, to: t };
+  });
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
@@ -114,15 +124,20 @@ export default function AdminDashboard() {
       if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
       if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
       if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-      if (filterStatus !== "all" && t.status !== filterStatus) return false;
-      if (filterInProgressDate && t.in_progress_at?.slice(0, 10) !== filterInProgressDate) return false;
+      if (filterStatuses.length > 0 && !filterStatuses.includes(t.status)) return false;
+      if (filterInProgressRange.from || filterInProgressRange.to) {
+        const d = t.in_progress_at?.slice(0, 10);
+        if (!d) return false;
+        if (filterInProgressRange.from && d < filterInProgressRange.from) return false;
+        if (filterInProgressRange.to && d > filterInProgressRange.to) return false;
+      }
       if (overdueOnly) {
         if (!t.due_date || t.status === "done") return false;
         if (new Date(t.due_date) >= today) return false;
       }
       return true;
     });
-  }, [tasks, query, filterAssignee, filterPriority, filterStatus, filterInProgressDate, overdueOnly]);
+  }, [tasks, query, filterAssignee, filterPriority, filterStatuses, filterInProgressRange, overdueOnly]);
 
   // Same filters as `filtered`, minus due-date/overdue: completion date and log date are about
   // when work happened, not a task's due date, so the "today" KPIs below stay accurate even
@@ -133,21 +148,25 @@ export default function AdminDashboard() {
       if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
       if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
       if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-      if (filterStatus !== "all" && t.status !== filterStatus) return false;
+      if (filterStatuses.length > 0 && !filterStatuses.includes(t.status)) return false;
       return true;
     });
-  }, [tasks, query, filterAssignee, filterPriority, filterStatus]);
+  }, [tasks, query, filterAssignee, filterPriority, filterStatuses]);
+
+  const toggleStatus = (value) => setFilterStatuses((prev) =>
+    prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+  );
 
   const resetFilters = () => {
     setQuery(""); setFilterAssignee("all"); setFilterPriority("all");
-    setFilterStatus("all"); setFilterInProgressDate(""); setOverdueOnly(false);
+    setFilterStatuses([]); setFilterInProgressRange({ from: "", to: "" }); setOverdueOnly(false);
   };
   const activeFilterCount = [
     query.trim() ? 1 : 0,
     filterAssignee !== "all" ? 1 : 0,
     filterPriority !== "all" ? 1 : 0,
-    filterStatus !== "all" ? 1 : 0,
-    filterInProgressDate ? 1 : 0,
+    filterStatuses.length > 0 ? 1 : 0,
+    (filterInProgressRange.from || filterInProgressRange.to) ? 1 : 0,
     overdueOnly ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
@@ -312,15 +331,49 @@ export default function AdminDashboard() {
 
         <div className="flex flex-col gap-1">
           <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</Label>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-status"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any status</SelectItem>
-              <SelectItem value="todo">To Do</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-            </SelectContent>
-          </Select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                data-testid="filter-status"
+                className="h-10 w-40 justify-start rounded-md border-slate-300 text-left font-normal"
+              >
+                {filterStatuses.length === 0
+                  ? "Any status"
+                  : filterStatuses.length === STATUS_OPTIONS.length
+                    ? "All statuses"
+                    : filterStatuses.map((v) => STATUS_OPTIONS.find((o) => o.value === v)?.label).join(", ")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2">
+              <div className="space-y-1">
+                {STATUS_OPTIONS.map((o) => (
+                  <label
+                    key={o.value}
+                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-slate-50"
+                  >
+                    <Checkbox
+                      checked={filterStatuses.includes(o.value)}
+                      onCheckedChange={() => toggleStatus(o.value)}
+                      data-testid={`filter-status-option-${o.value}`}
+                    />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
+              {filterStatuses.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setFilterStatuses([])}
+                  className="mt-1 w-full rounded-none border-t border-slate-200 text-slate-600"
+                  data-testid="filter-status-clear"
+                >
+                  <X size={14} /> Clear statuses
+                </Button>
+              )}
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="flex flex-col gap-1">
@@ -330,27 +383,37 @@ export default function AdminDashboard() {
               <Button
                 variant="outline"
                 data-testid="filter-in-progress-date"
-                className="h-10 w-40 justify-start rounded-md border-slate-300 text-left font-normal"
+                className="h-10 w-52 justify-start rounded-md border-slate-300 text-left font-normal"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {filterInProgressDate ? format(parseISO(filterInProgressDate), "PP") : "Any date"}
+                {filterInProgressRange.from
+                  ? filterInProgressRange.to && filterInProgressRange.to !== filterInProgressRange.from
+                    ? `${format(parseISO(filterInProgressRange.from), "MMM d")} – ${format(parseISO(filterInProgressRange.to), "MMM d, yyyy")}`
+                    : format(parseISO(filterInProgressRange.from), "PP")
+                  : "Any date"}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
               <Calendar
-                mode="single"
-                selected={filterInProgressDate ? parseISO(filterInProgressDate) : undefined}
-                onSelect={(d) => setFilterInProgressDate(d ? format(d, "yyyy-MM-dd") : "")}
+                mode="range"
+                selected={{
+                  from: filterInProgressRange.from ? parseISO(filterInProgressRange.from) : undefined,
+                  to: filterInProgressRange.to ? parseISO(filterInProgressRange.to) : undefined,
+                }}
+                onSelect={(range) => setFilterInProgressRange({
+                  from: range?.from ? format(range.from, "yyyy-MM-dd") : "",
+                  to: range?.to ? format(range.to, "yyyy-MM-dd") : "",
+                })}
               />
-              {filterInProgressDate && (
+              {(filterInProgressRange.from || filterInProgressRange.to) && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setFilterInProgressDate("")}
+                  onClick={() => setFilterInProgressRange({ from: "", to: "" })}
                   className="w-full rounded-none border-t border-slate-200 text-slate-600"
                   data-testid="filter-in-progress-date-clear"
                 >
-                  <X size={14} /> Clear date
+                  <X size={14} /> Clear date range
                 </Button>
               )}
             </PopoverContent>
@@ -508,52 +571,68 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="border border-slate-200 bg-white lg:col-span-1">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="border border-slate-200 bg-white">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                 <h3 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Urgent tasks</h3>
                 <span className="text-xs text-slate-400">{urgentTasks.length}</span>
               </div>
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Task</th>
-                    <th className="px-4 py-3 font-medium">In progress since</th>
-                    <th className="px-4 py-3 font-medium">Assigned to</th>
-                    <th className="px-4 py-3 font-medium" />
+                    <th className="px-3 py-3 font-medium">Task</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-medium">Created</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-medium">In progress</th>
+                    <th className="whitespace-nowrap px-3 py-3 font-medium">Assigned</th>
+                    <th className="px-3 py-3 font-medium" />
                   </tr>
                 </thead>
                 <tbody>
                   {urgentTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
                         No urgent tasks.
                       </td>
                     </tr>
                   ) : urgentTasks.map((t) => (
                     <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50" data-testid={`urgent-task-row-${t.id}`}>
-                      <td className="px-4 py-3 font-medium text-slate-900">{t.title}</td>
-                      <td className="px-4 py-3 text-slate-600">{t.in_progress_at ? format(parseISO(t.in_progress_at), "MMM d, yyyy 'at' h:mm a") : "Not started"}</td>
-                      <td className="px-4 py-3 text-slate-600">{t.assignee?.name || "—"}</td>
-                      <td className="px-4 py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-400 hover:text-slate-700"
-                          onClick={() => setHistoryTask(t)}
-                          data-testid={`urgent-task-history-${t.id}`}
-                          title="View history"
-                        >
-                          <History size={14} />
-                        </Button>
+                      <td className="px-3 py-2.5 font-medium text-slate-900">{t.title}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.created_at ? format(parseISO(t.created_at), "MMM d, h:mm a") : "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.in_progress_at ? format(parseISO(t.in_progress_at), "MMM d, h:mm a") : "Not started"}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.assignee?.name || "—"}</td>
+                      <td className="px-3 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-slate-400 hover:text-slate-700"
+                            onClick={() => { setEditingTask(t); setDialogOpen(true); }}
+                            data-testid={`urgent-task-edit-${t.id}`}
+                            title="Edit task"
+                          >
+                            <Pencil size={14} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-slate-400 hover:text-slate-700"
+                            onClick={() => setHistoryTask(t)}
+                            data-testid={`urgent-task-history-${t.id}`}
+                            title="View history"
+                          >
+                            <History size={14} />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-[11px] sm:grid-cols-2 xl:grid-cols-3 lg:col-span-2">
+            <div className="grid grid-cols-1 gap-[11px] sm:grid-cols-2">
               {nonUrgentTiles.length === 0 ? (
                 <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
                   No tasks match the filter.
