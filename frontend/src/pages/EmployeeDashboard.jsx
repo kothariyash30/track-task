@@ -5,12 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Loader2, CalendarIcon, X } from "lucide-react";
 import { toast } from "sonner";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { format, parseISO, isBefore, isAfter, isSameDay, startOfWeek, endOfWeek, startOfToday } from "date-fns";
+import { format, parseISO } from "date-fns";
 import TaskDialog from "@/components/TaskDialog";
-import TimeLogDialog from "@/components/TimeLogDialog";
 import TaskCard from "@/components/TaskCard";
 
 const COLUMNS = [
@@ -25,20 +23,23 @@ export default function EmployeeDashboard() {
   const [employees, setEmployees] = useState([user]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [datePreset, setDatePreset] = useState("all"); // all | today | week | overdue | none | custom
-  const [customDate, setCustomDate] = useState(null);
+  // Filters by when the task moved to in_progress, not by due date. Defaults to "any date"
+  // so the board keeps showing everything until explicitly narrowed.
+  const [filterInProgressRange, setFilterInProgressRange] = useState({ from: "", to: "" });
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-
-  const [timeLogTask, setTimeLogTask] = useState(null);
-  const [timeLogOpen, setTimeLogOpen] = useState(false);
+  const [timeLogs, setTimeLogs] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/tasks", { params: { scope: "mine" } });
-      setTasks(data);
+      const [t, l] = await Promise.all([
+        api.get("/tasks", { params: { scope: "mine" } }),
+        api.get("/time-logs/mine"),
+      ]);
+      setTasks(t.data);
+      setTimeLogs(l.data);
     } catch (e) {
       toast.error(formatApiError(e));
     } finally {
@@ -57,17 +58,26 @@ export default function EmployeeDashboard() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter((t) => t.title.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q));
-  }, [tasks, query]);
+    return tasks.filter((t) => {
+      if (q && !(t.title.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q))) return false;
+      if (filterInProgressRange.from || filterInProgressRange.to) {
+        // A task with no in_progress_at (never started) always bypasses the range,
+        // rather than being hidden — same rule as the admin dashboard's filters.
+        const d = t.in_progress_at?.slice(0, 10);
+        if (d) {
+          if (filterInProgressRange.from && d < filterInProgressRange.from) return false;
+          if (filterInProgressRange.to && d > filterInProgressRange.to) return false;
+        }
+      }
+      return true;
+    });
+  }, [tasks, query, filterInProgressRange]);
 
   const grouped = useMemo(() => {
     const out = { todo: [], in_progress: [], done: [] };
     for (const t of filtered) out[t.status]?.push(t);
     return out;
   }, [filtered]);
-
-  const totalHours = useMemo(() => tasks.reduce((s, t) => s + Number(t.hours_logged || 0), 0), [tasks]);
 
   const openCreate = () => { setEditingTask(null); setDialogOpen(true); };
   const openEdit = (t) => { setEditingTask(t); setDialogOpen(true); };
@@ -94,8 +104,6 @@ export default function EmployeeDashboard() {
       toast.success("Task deleted");
     } catch (e) { toast.error(formatApiError(e)); }
   };
-
-  const openTimeLog = (t) => { setTimeLogTask(t); setTimeLogOpen(true); };
 
   // --- Drag & drop ---
   const [draggingId, setDraggingId] = useState(null);
@@ -132,12 +140,30 @@ export default function EmployeeDashboard() {
     }
   };
 
+  const todayISO = format(new Date(), "yyyy-MM-dd");
+
+  // "Active today" / "In progress" reflect current state (not-done work, and work
+  // currently in progress) rather than a lifetime count of everything ever assigned —
+  // a task doesn't stop being active workload just because its session began a few days
+  // ago. "Completed" and "Hours logged" below are the genuinely date-scoped events.
+  const activeTasks = useMemo(() => tasks.filter((t) => t.status !== "done"), [tasks]);
+
+  const completedToday = useMemo(
+    () => tasks.filter((t) => t.completed_at?.slice(0, 10) === todayISO).length,
+    [tasks, todayISO]
+  );
+
+  const hoursToday = useMemo(
+    () => timeLogs.filter((l) => l.created_at?.slice(0, 10) === todayISO).reduce((s, l) => s + Number(l.hours || 0), 0),
+    [timeLogs, todayISO]
+  );
+
   const stats = useMemo(() => ({
-    total: tasks.length,
-    done: tasks.filter((t) => t.status === "done").length,
-    in_progress: tasks.filter((t) => t.status === "in_progress").length,
-    hours: totalHours,
-  }), [tasks, totalHours]);
+    total: activeTasks.length,
+    in_progress: activeTasks.filter((t) => t.status === "in_progress").length,
+    done: completedToday,
+    hours: hoursToday,
+  }), [activeTasks, completedToday, hoursToday]);
 
   return (
     <div className="space-y-8">
@@ -158,37 +184,49 @@ export default function EmployeeDashboard() {
               className="h-10 rounded-md border-slate-300 pl-9 md:w-72"
             />
           </div>
-          <Select value={datePreset} onValueChange={(v) => { setDatePreset(v); if (v !== "custom") setCustomDate(null); }}>
-            <SelectTrigger className="h-10 w-40 rounded-md border-slate-300" data-testid="date-filter-select">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any date</SelectItem>
-              <SelectItem value="today">Due today</SelectItem>
-              <SelectItem value="week">Due this week</SelectItem>
-              <SelectItem value="overdue">Overdue</SelectItem>
-              <SelectItem value="none">No due date</SelectItem>
-              <SelectItem value="custom">Custom date…</SelectItem>
-            </SelectContent>
-          </Select>
-          {datePreset === "custom" && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" data-testid="custom-date-trigger" className="h-10 rounded-md border-slate-300 font-normal">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {customDate ? format(customDate, "PP") : "Pick date"}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" data-testid="date-filter-select" className="h-10 rounded-md border-slate-300 font-normal">
+                <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {filterInProgressRange.from
+                    ? filterInProgressRange.to && filterInProgressRange.to !== filterInProgressRange.from
+                      ? `${format(parseISO(filterInProgressRange.from), "MMM d")} – ${format(parseISO(filterInProgressRange.to), "MMM d")}`
+                      : format(parseISO(filterInProgressRange.from), "PP")
+                    : "Any date"}
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+              <Calendar
+                mode="range"
+                selected={{
+                  from: filterInProgressRange.from ? parseISO(filterInProgressRange.from) : undefined,
+                  to: filterInProgressRange.to ? parseISO(filterInProgressRange.to) : undefined,
+                }}
+                onSelect={(range) => setFilterInProgressRange({
+                  from: range?.from ? format(range.from, "yyyy-MM-dd") : "",
+                  to: range?.to ? format(range.to, "yyyy-MM-dd") : "",
+                })}
+              />
+              {(filterInProgressRange.from || filterInProgressRange.to) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setFilterInProgressRange({ from: "", to: "" })}
+                  className="w-full rounded-none border-t border-slate-200 text-slate-600"
+                  data-testid="date-filter-clear"
+                >
+                  <X size={14} /> Clear date range
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <Calendar mode="single" selected={customDate || undefined} onSelect={(d) => setCustomDate(d || null)} />
-              </PopoverContent>
-            </Popover>
-          )}
-          {(datePreset !== "all" || query) && (
+              )}
+            </PopoverContent>
+          </Popover>
+          {(filterInProgressRange.from || filterInProgressRange.to || query) && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setDatePreset("all"); setCustomDate(null); setQuery(""); }}
+              onClick={() => { setFilterInProgressRange({ from: "", to: "" }); setQuery(""); }}
               data-testid="clear-filters-button"
               className="h-10 text-slate-600"
             >
@@ -203,10 +241,10 @@ export default function EmployeeDashboard() {
 
       <div className="grid grid-cols-2 gap-px overflow-hidden border border-slate-200 bg-slate-200 md:grid-cols-4">
         {[
-          ["Total", stats.total],
+          ["Active today", stats.total],
           ["In progress", stats.in_progress],
-          ["Completed", stats.done],
-          ["Hours logged", stats.hours.toFixed(1)],
+          ["Completed today", stats.done],
+          ["Hours logged today", stats.hours.toFixed(1)],
         ].map(([k, v]) => (
           <div key={k} className="bg-white px-5 py-4">
             <div className="font-display text-3xl font-semibold text-slate-900" data-testid={`stat-${k.toLowerCase().replace(/\s/g, "-")}`}>{v}</div>
@@ -248,7 +286,6 @@ export default function EmployeeDashboard() {
                       onEdit={openEdit}
                       onDelete={removeTask}
                       onChangeStatus={changeStatus}
-                      onLogTime={openTimeLog}
                       draggable
                       onDragStart={onDragStart(t)}
                       onDragEnd={onDragEnd}
@@ -268,12 +305,6 @@ export default function EmployeeDashboard() {
         employees={employees}
         currentUser={user}
         onSaved={upsert}
-      />
-      <TimeLogDialog
-        open={timeLogOpen}
-        onOpenChange={setTimeLogOpen}
-        task={timeLogTask}
-        onLogged={load}
       />
     </div>
   );

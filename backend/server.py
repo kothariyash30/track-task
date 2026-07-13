@@ -173,11 +173,6 @@ class TaskUpdate(BaseModel):
     assignee_id: Optional[str] = None
 
 
-class TimeLogCreate(BaseModel):
-    hours: float = Field(gt=0, le=24)
-    note: str = ""
-
-
 class ResetPasswordBody(BaseModel):
     new_password: str = Field(min_length=6, max_length=120)
 
@@ -372,6 +367,30 @@ async def update_task(task_id: str, body: TaskUpdate, user: dict = Depends(get_c
     if updates.get("status") == "in_progress" and task.get("status") != "in_progress":
         updates["in_progress_at"] = datetime.now(timezone.utc).isoformat()
 
+    # Hours logged are computed, not user-entered: leaving in_progress (to todo or done)
+    # closes out the current session and adds its elapsed time to the cumulative total.
+    # Re-entering in_progress later (in_progress_at gets overwritten above) starts a fresh
+    # session, so pausing and resuming a task accumulates rather than resets.
+    if (
+        task.get("status") == "in_progress"
+        and updates.get("status")
+        and updates["status"] != "in_progress"
+        and task.get("in_progress_at")
+    ):
+        session_start = datetime.fromisoformat(task["in_progress_at"])
+        now = datetime.now(timezone.utc)
+        elapsed_hours = (now - session_start).total_seconds() / 3600.0
+        if elapsed_hours > 0:
+            await db.time_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "task_id": task_id,
+                "user_id": user["id"],
+                "hours": round(elapsed_hours, 4),
+                "note": f"Auto-logged: in progress → {updates['status']}",
+                "created_at": now.isoformat(),
+            })
+            updates["hours_logged"] = round(float(task.get("hours_logged") or 0) + elapsed_hours, 4)
+
     changes = []
     for field in TRACKED_TASK_FIELDS:
         if field in updates and updates[field] != task.get(field):
@@ -414,28 +433,6 @@ async def get_task_audit_log(task_id: str, _: dict = Depends(require_admin)):
     return logs
 
 
-@api.post("/tasks/{task_id}/time-logs")
-async def log_time(task_id: str, body: TimeLogCreate, user: dict = Depends(get_current_user)):
-    task = await db.tasks.find_one({"id": task_id})
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if user["role"] != "admin" and task["assignee_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Not allowed")
-    log = {
-        "id": str(uuid.uuid4()),
-        "task_id": task_id,
-        "user_id": user["id"],
-        "hours": float(body.hours),
-        "note": body.note.strip(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.time_logs.insert_one(log)
-    await db.tasks.update_one({"id": task_id}, {"$inc": {"hours_logged": float(body.hours)},
-                                                "$set": {"updated_at": log["created_at"]}})
-    log.pop("_id", None)
-    return log
-
-
 @api.get("/tasks/{task_id}/time-logs")
 async def list_time_logs(task_id: str, user: dict = Depends(get_current_user)):
     task = await db.tasks.find_one({"id": task_id})
@@ -444,6 +441,12 @@ async def list_time_logs(task_id: str, user: dict = Depends(get_current_user)):
     if user["role"] != "admin" and task["assignee_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not allowed")
     logs = await db.time_logs.find({"task_id": task_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return logs
+
+
+@api.get("/time-logs/mine")
+async def list_my_time_logs(user: dict = Depends(get_current_user)):
+    logs = await db.time_logs.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return logs
 
 
@@ -622,6 +625,25 @@ async def seed_sample_tasks():
         await db.tasks.insert_one(task)
 
 
+async def migrate_reset_in_progress_sessions():
+    """One-time, idempotent migration for the switch to automatic hours tracking.
+
+    Tasks that were already sitting in "in_progress" before this feature existed have an
+    in_progress_at from whatever paradigm came before it (or none at all) — closing that
+    "session" later would credit the task with the full elapsed calendar time since then,
+    not real work time. Reset in_progress_at to the migration moment for any task currently
+    in_progress, so tracking starts clean for everyone. Guarded by a marker doc so this only
+    ever runs once, even across repeated deploys/restarts.
+    """
+    marker_id = "reset_in_progress_sessions_v1"
+    if await db.migrations.find_one({"id": marker_id}):
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.tasks.update_many({"status": "in_progress"}, {"$set": {"in_progress_at": now}})
+    await db.migrations.insert_one({"id": marker_id, "ran_at": now, "tasks_reset": result.modified_count})
+    logger.info("Migration %s: reset in_progress_at on %d task(s).", marker_id, result.modified_count)
+
+
 @app.on_event("startup")
 async def on_startup():
     try:
@@ -632,6 +654,7 @@ async def on_startup():
         await db.audit_logs.create_index("task_id")
         await seed_users()
         await seed_sample_tasks()
+        await migrate_reset_in_progress_sessions()
         logger.info("Startup complete: indexes ensured and seeds run.")
     except Exception as exc:  # pragma: no cover - logs the connectivity issue
         logger.exception(

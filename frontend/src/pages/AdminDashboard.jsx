@@ -2,14 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -17,27 +10,18 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Search, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, CalendarIcon, X, History, Pencil, MoreVertical } from "lucide-react";
+import { Loader2, Plus, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, History, Pencil, MoreVertical } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
 import ResetPasswordDialog from "@/components/ResetPasswordDialog";
 import AuditLogDialog from "@/components/AuditLogDialog";
+import TaskFilterBar from "@/components/TaskFilterBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { taskMatchesStatusFilter } from "@/lib/taskFilters";
 
 const STATUS_COLORS = { todo: "#64748B", in_progress: "#F59E0B", done: "#10B981" };
-const STATUS_OPTIONS = [
-  { value: "not_started", label: "Not Started" },
-  { value: "todo", label: "To Do" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
-];
-// "Not Started" isn't a real status field value — it means a task has never moved to
-// in_progress (in_progress_at is unset), which is how the urgent tasks table already
-// labels them. Selecting it lets admins isolate untouched urgent tasks specifically.
-const taskMatchesStatusFilter = (task, statusValue) =>
-  statusValue === "not_started" ? !task.in_progress_at : task.status === statusValue;
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -45,17 +29,26 @@ export default function AdminDashboard() {
   const [employees, setEmployees] = useState([]);
   const [timeLogs, setTimeLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [filterAssignee, setFilterAssignee] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all");
-  // Empty array = no status filter applied (matches every status).
-  const [filterStatuses, setFilterStatuses] = useState([]);
-  // Defaults to today->today so admins land on "what moved to in progress today" rather than every task ever created.
-  const [filterInProgressRange, setFilterInProgressRange] = useState(() => {
+
+  // The All Tasks tab's two panels (urgent table, remaining tiles) each get their own
+  // fully independent filter state, separate from each other. The KPI tiles, Reports, and
+  // Employees tabs below always reflect the complete, unfiltered task set.
+  const [urgentFilterAssignee, setUrgentFilterAssignee] = useState("all");
+  const [urgentFilterStatuses, setUrgentFilterStatuses] = useState([]);
+  const [urgentFilterInProgressRange, setUrgentFilterInProgressRange] = useState(() => {
     const t = format(new Date(), "yyyy-MM-dd");
     return { from: t, to: t };
   });
-  const [overdueOnly, setOverdueOnly] = useState(false);
+
+  const [remainingQuery, setRemainingQuery] = useState("");
+  const [remainingFilterAssignee, setRemainingFilterAssignee] = useState("all");
+  const [remainingFilterPriority, setRemainingFilterPriority] = useState("all");
+  const [remainingFilterStatuses, setRemainingFilterStatuses] = useState([]);
+  // Defaults to "any date" (unlike the urgent panel's today default) so this general
+  // browse view keeps showing everything until the admin explicitly narrows it.
+  const [remainingFilterInProgressRange, setRemainingFilterInProgressRange] = useState({ from: "", to: "" });
+  const [remainingOverdueOnly, setRemainingOverdueOnly] = useState(false);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [viewingEmployee, setViewingEmployee] = useState(null);
@@ -123,84 +116,50 @@ export default function AdminDashboard() {
     } catch (e) { toast.error(formatApiError(e)); }
   };
 
-  // Filtering drives everything below: the KPI tiles, both charts, and the
-  // employee roster table all recompute from this same filtered task set so
-  // they stay in sync with whatever the admin has selected.
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    return tasks.filter((t) => {
-      if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
-      if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
-      if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-      if (filterStatuses.length > 0 && !filterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
-      if (filterInProgressRange.from || filterInProgressRange.to) {
-        // Done work is always hidden while a date range is active — the filter is scoped
-        // to in-progress/not-started work only. Below that, "not started" is defined the
-        // same way the status filter defines it (no in_progress_at yet) so the two stay
-        // consistent: a task the "Not Started" checkbox matches never gets hidden by the
-        // date range, even if it's a legacy in_progress task from before this was tracked.
-        if (t.status === "done") return false;
-        const d = t.in_progress_at?.slice(0, 10);
-        if (d) {
-          if (filterInProgressRange.from && d < filterInProgressRange.from) return false;
-          if (filterInProgressRange.to && d > filterInProgressRange.to) return false;
-        }
-      }
-      if (overdueOnly) {
-        if (!t.due_date || t.status === "done") return false;
-        if (new Date(t.due_date) >= today) return false;
-      }
-      return true;
-    });
-  }, [tasks, query, filterAssignee, filterPriority, filterStatuses, filterInProgressRange, overdueOnly]);
-
-  // Same filters as `filtered`, minus due-date/overdue: completion date and log date are about
-  // when work happened, not a task's due date, so the "today" KPIs below stay accurate even
-  // when the due-date filter (which defaults to today) narrows what's shown in the tiles.
-  const filteredForActivity = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return tasks.filter((t) => {
-      if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
-      if (filterAssignee !== "all" && t.assignee_id !== filterAssignee) return false;
-      if (filterPriority !== "all" && t.priority !== filterPriority) return false;
-      if (filterStatuses.length > 0 && !filterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
-      return true;
-    });
-  }, [tasks, query, filterAssignee, filterPriority, filterStatuses]);
-
-  const toggleStatus = (value) => setFilterStatuses((prev) =>
+  const toggleUrgentStatus = (value) => setUrgentFilterStatuses((prev) =>
     prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
   );
-
-  const resetFilters = () => {
-    setQuery(""); setFilterAssignee("all"); setFilterPriority("all");
-    setFilterStatuses([]); setFilterInProgressRange({ from: "", to: "" }); setOverdueOnly(false);
+  const resetUrgentFilters = () => {
+    setUrgentFilterAssignee("all"); setUrgentFilterStatuses([]);
+    setUrgentFilterInProgressRange({ from: "", to: "" });
   };
-  const activeFilterCount = [
-    query.trim() ? 1 : 0,
-    filterAssignee !== "all" ? 1 : 0,
-    filterPriority !== "all" ? 1 : 0,
-    filterStatuses.length > 0 ? 1 : 0,
-    (filterInProgressRange.from || filterInProgressRange.to) ? 1 : 0,
-    overdueOnly ? 1 : 0,
+  const activeUrgentFilterCount = [
+    urgentFilterAssignee !== "all" ? 1 : 0,
+    urgentFilterStatuses.length > 0 ? 1 : 0,
+    (urgentFilterInProgressRange.from || urgentFilterInProgressRange.to) ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+
+  const toggleRemainingStatus = (value) => setRemainingFilterStatuses((prev) =>
+    prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+  );
+  const resetRemainingFilters = () => {
+    setRemainingQuery(""); setRemainingFilterAssignee("all"); setRemainingFilterPriority("all");
+    setRemainingFilterStatuses([]); setRemainingFilterInProgressRange({ from: "", to: "" }); setRemainingOverdueOnly(false);
+  };
+  const activeRemainingFilterCount = [
+    remainingQuery.trim() ? 1 : 0,
+    remainingFilterAssignee !== "all" ? 1 : 0,
+    remainingFilterPriority !== "all" ? 1 : 0,
+    remainingFilterStatuses.length > 0 ? 1 : 0,
+    (remainingFilterInProgressRange.from || remainingFilterInProgressRange.to) ? 1 : 0,
+    remainingOverdueOnly ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
   const todayISO = format(new Date(), "yyyy-MM-dd");
 
   // "Completed today" / "Hours logged today" reflect actual activity that happened today —
   // using completed_at (set when a task's status flips to done) and time-log timestamps —
-  // rather than lifetime totals, and still respect whatever filters are active.
+  // across the whole team (no filter UI narrows these anymore; the two All Tasks panels
+  // below have their own independent filters instead).
   const completedToday = useMemo(() => {
-    return filteredForActivity.filter((t) => t.completed_at && t.completed_at.slice(0, 10) === todayISO).length;
-  }, [filteredForActivity, todayISO]);
+    return tasks.filter((t) => t.completed_at && t.completed_at.slice(0, 10) === todayISO).length;
+  }, [tasks, todayISO]);
 
   const hoursLoggedToday = useMemo(() => {
-    const activityTaskIds = new Set(filteredForActivity.map((t) => t.id));
     return timeLogs
-      .filter((l) => activityTaskIds.has(l.task_id) && l.created_at && l.created_at.slice(0, 10) === todayISO)
+      .filter((l) => l.created_at && l.created_at.slice(0, 10) === todayISO)
       .reduce((sum, l) => sum + Number(l.hours || 0), 0);
-  }, [filteredForActivity, timeLogs, todayISO]);
+  }, [timeLogs, todayISO]);
 
   const stats = useMemo(() => {
     const perUserMap = {};
@@ -212,7 +171,7 @@ export default function AdminDashboard() {
     });
     const status_counts = { todo: 0, in_progress: 0, done: 0 };
     let hours_logged = 0;
-    for (const t of filtered) {
+    for (const t of tasks) {
       status_counts[t.status] = (status_counts[t.status] || 0) + 1;
       hours_logged += Number(t.hours_logged || 0);
       const pu = perUserMap[t.assignee_id];
@@ -224,7 +183,7 @@ export default function AdminDashboard() {
     }
     return {
       totals: {
-        tasks: filtered.length,
+        tasks: tasks.length,
         employees: employees.filter((e) => e.role === "employee").length,
         completed: status_counts.done,
         hours_logged,
@@ -232,7 +191,7 @@ export default function AdminDashboard() {
       status_counts,
       per_user: Object.values(perUserMap),
     };
-  }, [filtered, employees]);
+  }, [tasks, employees]);
 
   const workloadData = useMemo(() => {
     return stats.per_user
@@ -246,15 +205,52 @@ export default function AdminDashboard() {
       }));
   }, [stats]);
 
-  const urgentTasks = useMemo(() => filtered.filter((t) => t.priority === "urgent"), [filtered]);
-  // Urgent tasks get their own table (above), so the tile grid only shows the rest — avoids showing them twice.
+  // The urgent table and the tile grid each run their own independent filter pass over
+  // `tasks`, driven by their own independent filter state (urgent*/remaining* above) —
+  // not a shared array — so filtering one panel can never affect the other.
+  const urgentTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (t.priority !== "urgent") return false;
+      if (urgentFilterAssignee !== "all" && t.assignee_id !== urgentFilterAssignee) return false;
+      if (urgentFilterStatuses.length > 0 && !urgentFilterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
+      if (urgentFilterInProgressRange.from || urgentFilterInProgressRange.to) {
+        const d = t.in_progress_at?.slice(0, 10);
+        if (d) {
+          if (urgentFilterInProgressRange.from && d < urgentFilterInProgressRange.from) return false;
+          if (urgentFilterInProgressRange.to && d > urgentFilterInProgressRange.to) return false;
+        }
+      }
+      return true;
+    });
+  }, [tasks, urgentFilterAssignee, urgentFilterStatuses, urgentFilterInProgressRange]);
+
   // Sorted alphabetically by assignee name by default so tiles group naturally by employee.
   const nonUrgentTiles = useMemo(() => {
-    return filtered
-      .filter((t) => t.priority !== "urgent")
-      .slice()
-      .sort((a, b) => (a.assignee?.name || "").localeCompare(b.assignee?.name || ""));
-  }, [filtered]);
+    const q = remainingQuery.trim().toLowerCase();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const matches = tasks.filter((t) => {
+      if (t.priority === "urgent") return false;
+      if (q && !(t.title.toLowerCase().includes(q) || t.assignee?.name?.toLowerCase().includes(q))) return false;
+      if (remainingFilterAssignee !== "all" && t.assignee_id !== remainingFilterAssignee) return false;
+      if (remainingFilterPriority !== "all" && t.priority !== remainingFilterPriority) return false;
+      if (remainingFilterStatuses.length > 0 && !remainingFilterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
+      if (remainingFilterInProgressRange.from || remainingFilterInProgressRange.to) {
+        // Same non-destructive rule as the urgent panel: a task with no in_progress_at
+        // (never started) always bypasses the range rather than being hidden.
+        const d = t.in_progress_at?.slice(0, 10);
+        if (d) {
+          if (remainingFilterInProgressRange.from && d < remainingFilterInProgressRange.from) return false;
+          if (remainingFilterInProgressRange.to && d > remainingFilterInProgressRange.to) return false;
+        }
+      }
+      if (remainingOverdueOnly) {
+        if (!t.due_date || t.status === "done") return false;
+        if (new Date(t.due_date) >= today) return false;
+      }
+      return true;
+    });
+    return matches.slice().sort((a, b) => (a.assignee?.name || "").localeCompare(b.assignee?.name || ""));
+  }, [tasks, remainingQuery, remainingFilterAssignee, remainingFilterPriority, remainingFilterStatuses, remainingFilterInProgressRange, remainingOverdueOnly]);
 
   const statusPie = useMemo(() => {
     return [
@@ -309,146 +305,6 @@ export default function AdminDashboard() {
           <Button onClick={() => { setEditingTask(null); setDialogOpen(true); }} className="h-10 bg-klein hover:bg-kleinDark" data-testid="admin-new-task-button">
             <Plus size={16} /> New task
           </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3 border border-slate-200 bg-white p-4">
-        <div className="relative w-full md:w-72">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input data-testid="admin-task-search" placeholder="Search tasks or assignees…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-10 rounded-md border-slate-300 pl-9" />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Assignee</Label>
-          <Select value={filterAssignee} onValueChange={setFilterAssignee}>
-            <SelectTrigger className="h-10 w-44 rounded-md border-slate-300" data-testid="filter-assignee"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All assignees</SelectItem>
-              {employees.map((e) => (
-                <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Priority</Label>
-          <Select value={filterPriority} onValueChange={setFilterPriority}>
-            <SelectTrigger className="h-10 w-36 rounded-md border-slate-300" data-testid="filter-priority"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any priority</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</Label>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                data-testid="filter-status"
-                className="h-10 w-40 justify-start rounded-md border-slate-300 text-left font-normal"
-              >
-                {filterStatuses.length === 0
-                  ? "Any status"
-                  : filterStatuses.length === STATUS_OPTIONS.length
-                    ? "All statuses"
-                    : filterStatuses.map((v) => STATUS_OPTIONS.find((o) => o.value === v)?.label).join(", ")}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-48 p-2">
-              <div className="space-y-1">
-                {STATUS_OPTIONS.map((o) => (
-                  <label
-                    key={o.value}
-                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-slate-50"
-                  >
-                    <Checkbox
-                      checked={filterStatuses.includes(o.value)}
-                      onCheckedChange={() => toggleStatus(o.value)}
-                      data-testid={`filter-status-option-${o.value}`}
-                    />
-                    {o.label}
-                  </label>
-                ))}
-              </div>
-              {filterStatuses.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setFilterStatuses([])}
-                  className="mt-1 w-full rounded-none border-t border-slate-200 text-slate-600"
-                  data-testid="filter-status-clear"
-                >
-                  <X size={14} /> Clear statuses
-                </Button>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase tracking-[0.18em] text-slate-500">In progress date</Label>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                data-testid="filter-in-progress-date"
-                className="h-10 w-52 justify-start rounded-md border-slate-300 text-left font-normal"
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {filterInProgressRange.from
-                  ? filterInProgressRange.to && filterInProgressRange.to !== filterInProgressRange.from
-                    ? `${format(parseISO(filterInProgressRange.from), "MMM d")} – ${format(parseISO(filterInProgressRange.to), "MMM d, yyyy")}`
-                    : format(parseISO(filterInProgressRange.from), "PP")
-                  : "Any date"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <Calendar
-                mode="range"
-                selected={{
-                  from: filterInProgressRange.from ? parseISO(filterInProgressRange.from) : undefined,
-                  to: filterInProgressRange.to ? parseISO(filterInProgressRange.to) : undefined,
-                }}
-                onSelect={(range) => setFilterInProgressRange({
-                  from: range?.from ? format(range.from, "yyyy-MM-dd") : "",
-                  to: range?.to ? format(range.to, "yyyy-MM-dd") : "",
-                })}
-              />
-              {(filterInProgressRange.from || filterInProgressRange.to) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setFilterInProgressRange({ from: "", to: "" })}
-                  className="w-full rounded-none border-t border-slate-200 text-slate-600"
-                  data-testid="filter-in-progress-date-clear"
-                >
-                  <X size={14} /> Clear date range
-                </Button>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        <div className="flex items-center gap-2 rounded-md border border-slate-300 px-3 h-10">
-          <Switch id="overdue-only" checked={overdueOnly} onCheckedChange={setOverdueOnly} data-testid="filter-overdue" />
-          <Label htmlFor="overdue-only" className="text-sm text-slate-700">Overdue only</Label>
-        </div>
-
-        {activeFilterCount > 0 && (
-          <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="filter-reset" className="h-10 text-slate-600">
-            Clear ({activeFilterCount})
-          </Button>
-        )}
-
-        <div className="ml-auto text-sm text-slate-500" data-testid="filter-result-count">
-          {filtered.length} of {tasks.length} tasks
         </div>
       </div>
 
@@ -587,12 +443,29 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Urgent panel is 25% narrower than an even 50/50 split (3fr vs 5fr = 37.5%/62.5%). */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[3fr_5fr]">
             <div className="border border-slate-200 bg-white">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                 <h3 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Urgent tasks</h3>
                 <span className="text-xs text-slate-400">{urgentTasks.length}</span>
               </div>
+              <TaskFilterBar
+                testidPrefix="urgent-filter"
+                employees={employees}
+                assignee={urgentFilterAssignee}
+                onAssigneeChange={setUrgentFilterAssignee}
+                statuses={urgentFilterStatuses}
+                onToggleStatus={toggleUrgentStatus}
+                onClearStatuses={() => setUrgentFilterStatuses([])}
+                dateRange={urgentFilterInProgressRange}
+                onDateRangeChange={setUrgentFilterInProgressRange}
+                onClearDateRange={() => setUrgentFilterInProgressRange({ from: "", to: "" })}
+                activeCount={activeUrgentFilterCount}
+                onClearAll={resetUrgentFilters}
+                resultCount={urgentTasks.length}
+                totalCount={tasks.filter((t) => t.priority === "urgent").length}
+              />
               <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -649,25 +522,52 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-[11px] sm:grid-cols-2">
-              {nonUrgentTiles.length === 0 ? (
-                <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-                  No tasks match the filter.
-                </div>
-              ) : nonUrgentTiles.map((t) => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  onEdit={(task) => { setEditingTask(task); setDialogOpen(true); }}
-                  onDelete={removeTask}
-                  onChangeStatus={changeStatus}
-                  onLogTime={() => toast.info("Use the My Tasks page to log time on your own tasks.")}
-                  onViewHistory={setHistoryTask}
-                  showAssignee
-                  compact
-                  showInProgressDate
-                />
-              ))}
+            <div>
+              <div className="flex items-center justify-between border border-b-0 border-slate-200 bg-white px-4 py-3">
+                <h3 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Remaining tasks</h3>
+                <span className="text-xs text-slate-400">{nonUrgentTiles.length}</span>
+              </div>
+              <TaskFilterBar
+                testidPrefix="remaining-filter"
+                query={remainingQuery}
+                onQueryChange={setRemainingQuery}
+                employees={employees}
+                assignee={remainingFilterAssignee}
+                onAssigneeChange={setRemainingFilterAssignee}
+                priority={remainingFilterPriority}
+                onPriorityChange={setRemainingFilterPriority}
+                statuses={remainingFilterStatuses}
+                onToggleStatus={toggleRemainingStatus}
+                onClearStatuses={() => setRemainingFilterStatuses([])}
+                dateRange={remainingFilterInProgressRange}
+                onDateRangeChange={setRemainingFilterInProgressRange}
+                onClearDateRange={() => setRemainingFilterInProgressRange({ from: "", to: "" })}
+                overdueOnly={remainingOverdueOnly}
+                onOverdueChange={setRemainingOverdueOnly}
+                activeCount={activeRemainingFilterCount}
+                onClearAll={resetRemainingFilters}
+                resultCount={nonUrgentTiles.length}
+                totalCount={tasks.filter((t) => t.priority !== "urgent").length}
+              />
+              <div className="grid grid-cols-1 gap-[11px] border border-t-0 border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+                {nonUrgentTiles.length === 0 ? (
+                  <div className="col-span-full border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+                    No tasks match the filter.
+                  </div>
+                ) : nonUrgentTiles.map((t) => (
+                  <TaskCard
+                    key={t.id}
+                    task={t}
+                    onEdit={(task) => { setEditingTask(task); setDialogOpen(true); }}
+                    onDelete={removeTask}
+                    onChangeStatus={changeStatus}
+                    onViewHistory={setHistoryTask}
+                    showAssignee
+                    compact
+                    showInProgressDate
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </TabsContent>

@@ -16,7 +16,7 @@ const PRIORITY_COLOR = {
 const NEXT_STATUS = { todo: "in_progress", in_progress: "done", done: "in_progress" };
 const PREV_STATUS = { in_progress: "todo", done: "in_progress" };
 
-export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onLogTime, onViewHistory, canEdit = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false }) {
+export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false }) {
   const due = task.due_date ? parseISO(task.due_date) : null;
   const overdue = due && task.status !== "done" && isPast(due);
   const iconSize = compact ? 10 : 14;
@@ -47,9 +47,6 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onLog
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onEdit?.(task)} data-testid={`task-edit-${task.id}`}>
                 <Pencil size={14} /> Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onLogTime?.(task)} data-testid={`task-log-time-${task.id}`}>
-                <Clock size={14} /> Log time
               </DropdownMenuItem>
               {onViewHistory && (
                 <DropdownMenuItem onClick={() => onViewHistory(task)} data-testid={`task-history-${task.id}`}>
