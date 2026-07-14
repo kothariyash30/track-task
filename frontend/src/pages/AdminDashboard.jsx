@@ -19,9 +19,11 @@ import ResetPasswordDialog from "@/components/ResetPasswordDialog";
 import AuditLogDialog from "@/components/AuditLogDialog";
 import ReassignTaskDialog from "@/components/ReassignTaskDialog";
 import ProductivityReportDialog from "@/components/ProductivityReportDialog";
+import PurgeConfirmDialog from "@/components/PurgeConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import TaskFilterBar from "@/components/TaskFilterBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { taskMatchesStatusFilter } from "@/lib/taskFilters";
@@ -63,6 +65,11 @@ export default function AdminDashboard() {
   const [reassigningTask, setReassigningTask] = useState(null);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
 
+  // Purge (bulk delete): selection is a plain set of task ids shared across both All Tasks
+  // panels, since either panel's filtered/displayed rows can contribute to one purge action.
+  const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set());
+  const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+
   const [employeesQuery, setEmployeesQuery] = useState("");
   const [employeesFilterRole, setEmployeesFilterRole] = useState("all");
   // Task-level filters: narrow which tasks feed the per-employee Tasks/Done/In
@@ -100,6 +107,35 @@ export default function AdminDashboard() {
     const interval = setInterval(() => load({ silent: true }), 20_000);
     return () => clearInterval(interval);
   }, [load]);
+
+  // Drop selected ids that no longer exist in the loaded task set (deleted elsewhere,
+  // reassigned out of view, etc.) so the purge bar's count never references stale tasks.
+  useEffect(() => {
+    setSelectedTaskIds((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(tasks.map((t) => t.id));
+      const next = new Set();
+      let changed = false;
+      prev.forEach((id) => {
+        if (validIds.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  const toggleTaskSelected = (task) => setSelectedTaskIds((prev) => {
+    const next = new Set(prev);
+    next.has(task.id) ? next.delete(task.id) : next.add(task.id);
+    return next;
+  });
+
+  const toggleSelectAllInList = (list) => setSelectedTaskIds((prev) => {
+    const next = new Set(prev);
+    const allSelected = list.length > 0 && list.every((t) => next.has(t.id));
+    list.forEach((t) => { allSelected ? next.delete(t.id) : next.add(t.id); });
+    return next;
+  });
 
   const upsert = (saved) => setTasks((prev) => {
     const idx = prev.findIndex((x) => x.id === saved.id);
@@ -603,12 +639,49 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="tasks" className="mt-4">
+          {selectedTaskIds.size > 0 && (
+            <div className="mb-4 flex items-center justify-between border border-red-200 bg-red-50 px-4 py-3" data-testid="bulk-purge-bar">
+              <span className="text-sm font-medium text-red-800">
+                {selectedTaskIds.size} task{selectedTaskIds.size === 1 ? "" : "s"} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedTaskIds(new Set())}
+                  className="text-xs text-slate-600"
+                  data-testid="bulk-clear-selection"
+                >
+                  Clear selection
+                </Button>
+                <Button
+                  onClick={() => setPurgeDialogOpen(true)}
+                  className="h-9 bg-red-600 hover:bg-red-700"
+                  data-testid="bulk-purge-button"
+                >
+                  <Trash2 size={14} /> Delete selected
+                </Button>
+              </div>
+            </div>
+          )}
           {/* Urgent panel is 25% narrower than an even 50/50 split (3fr vs 5fr = 37.5%/62.5%). */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[3fr_5fr]">
             <div className="border border-slate-200 bg-white">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                 <h3 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Urgent tasks</h3>
-                <span className="text-xs text-slate-400">{urgentTasks.length}</span>
+                <div className="flex items-center gap-3">
+                  {urgentTasks.length > 0 && (
+                    <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-500">
+                      <Checkbox
+                        checked={urgentTasks.every((t) => selectedTaskIds.has(t.id))}
+                        onCheckedChange={() => toggleSelectAllInList(urgentTasks)}
+                        data-testid="urgent-select-all"
+                      />
+                      Select all
+                    </label>
+                  )}
+                  <span className="text-xs text-slate-400">{urgentTasks.length}</span>
+                </div>
               </div>
               <TaskFilterBar
                 testidPrefix="urgent-filter"
@@ -630,6 +703,7 @@ export default function AdminDashboard() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                   <tr>
+                    <th className="w-8 px-3 py-3 font-medium" />
                     <th className="px-3 py-3 font-medium">Task</th>
                     <th className="whitespace-nowrap px-3 py-3 font-medium">Created</th>
                     <th className="whitespace-nowrap px-3 py-3 font-medium">In progress</th>
@@ -640,12 +714,19 @@ export default function AdminDashboard() {
                 <tbody>
                   {urgentTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
                         No urgent tasks.
                       </td>
                     </tr>
                   ) : urgentTasks.map((t) => (
                     <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50" data-testid={`urgent-task-row-${t.id}`}>
+                      <td className="px-3 py-2.5">
+                        <Checkbox
+                          checked={selectedTaskIds.has(t.id)}
+                          onCheckedChange={() => toggleTaskSelected(t)}
+                          data-testid={`urgent-task-select-${t.id}`}
+                        />
+                      </td>
                       <td className="px-3 py-2.5 font-medium text-slate-900">{t.title}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.created_at ? format(parseISO(t.created_at), "MMM d, h:mm a") : "—"}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{t.in_progress_at ? format(parseISO(t.in_progress_at), "MMM d, h:mm a") : "Not started"}</td>
@@ -688,7 +769,19 @@ export default function AdminDashboard() {
             <div>
               <div className="flex items-center justify-between border border-b-0 border-slate-200 bg-white px-4 py-3">
                 <h3 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Remaining tasks</h3>
-                <span className="text-xs text-slate-400">{nonUrgentTiles.length}</span>
+                <div className="flex items-center gap-3">
+                  {nonUrgentTiles.length > 0 && (
+                    <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-500">
+                      <Checkbox
+                        checked={nonUrgentTiles.every((t) => selectedTaskIds.has(t.id))}
+                        onCheckedChange={() => toggleSelectAllInList(nonUrgentTiles)}
+                        data-testid="remaining-select-all"
+                      />
+                      Select all
+                    </label>
+                  )}
+                  <span className="text-xs text-slate-400">{nonUrgentTiles.length}</span>
+                </div>
               </div>
               <TaskFilterBar
                 testidPrefix="remaining-filter"
@@ -728,6 +821,9 @@ export default function AdminDashboard() {
                     showAssignee
                     compact
                     showInProgressDate
+                    selectable
+                    selected={selectedTaskIds.has(t.id)}
+                    onToggleSelect={toggleTaskSelected}
                   />
                 ))}
               </div>
@@ -790,6 +886,13 @@ export default function AdminDashboard() {
         employees={employees.filter((e) => e.role === "employee")}
         tasks={tasks}
         timeLogs={timeLogs}
+      />
+
+      <PurgeConfirmDialog
+        open={purgeDialogOpen}
+        onOpenChange={setPurgeDialogOpen}
+        tasks={tasks.filter((t) => selectedTaskIds.has(t.id))}
+        onPurged={() => { setSelectedTaskIds(new Set()); load(); }}
       />
     </div>
   );

@@ -177,6 +177,11 @@ class ResetPasswordBody(BaseModel):
     new_password: str = Field(min_length=6, max_length=120)
 
 
+class BulkDeleteTasksBody(BaseModel):
+    task_ids: List[str] = Field(min_length=1, max_length=500)
+    password: str
+
+
 # ------------------------------------------------------------
 # Auth endpoints
 # ------------------------------------------------------------
@@ -422,6 +427,19 @@ async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
     await db.time_logs.delete_many({"task_id": task_id})
     await db.audit_logs.delete_many({"task_id": task_id})
     return {"ok": True}
+
+
+@api.post("/tasks/bulk-delete")
+async def bulk_delete_tasks(body: BulkDeleteTasksBody, user: dict = Depends(require_admin)):
+    # Re-checks the admin's own password on every purge call (not just once per session) so a
+    # bulk, irreversible delete always requires a fresh, explicit confirmation of identity.
+    if not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    task_ids = list(dict.fromkeys(body.task_ids))
+    result = await db.tasks.delete_many({"id": {"$in": task_ids}})
+    await db.time_logs.delete_many({"task_id": {"$in": task_ids}})
+    await db.audit_logs.delete_many({"task_id": {"$in": task_ids}})
+    return {"ok": True, "deleted_count": result.deleted_count}
 
 
 @api.get("/tasks/{task_id}/audit-log")

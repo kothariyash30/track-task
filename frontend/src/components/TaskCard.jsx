@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Clock, MoreVertical, Pencil, Trash2, ArrowRight, ArrowLeft, Check, History } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
@@ -16,7 +17,7 @@ const PRIORITY_COLOR = {
 const NEXT_STATUS = { todo: "in_progress", in_progress: "done", done: "in_progress" };
 const PREV_STATUS = { in_progress: "todo", done: "in_progress" };
 
-export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false }) {
+export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false, selectable = false, selected = false, onToggleSelect }) {
   const due = task.due_date ? parseISO(task.due_date) : null;
   const overdue = due && task.status !== "done" && isPast(due);
   const iconSize = compact ? 10 : 14;
@@ -31,11 +32,21 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onVie
       className={`group flex flex-col border border-slate-200 bg-white transition-all hover:-translate-y-0.5 hover:border-slate-300 ${compact ? "gap-[8px] p-[11px]" : "gap-3 p-4"} ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1">
-          <Badge variant="outline" className={`rounded-sm border uppercase tracking-widest ${compact ? "text-[7px]" : "text-[10px]"} ${PRIORITY_COLOR[task.priority]}`} data-testid={`task-priority-${task.id}`}>
-            {task.priority}
-          </Badge>
-          <h4 className={`font-display font-semibold leading-snug text-slate-900 ${compact ? "text-[11px]" : "text-base"}`} data-testid={`task-title-${task.id}`}>{task.title}</h4>
+        <div className="flex items-start gap-2">
+          {selectable && (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={() => onToggleSelect?.(task)}
+              className="mt-0.5"
+              data-testid={`task-select-${task.id}`}
+            />
+          )}
+          <div className="space-y-1">
+            <Badge variant="outline" className={`rounded-sm border uppercase tracking-widest ${compact ? "text-[7px]" : "text-[10px]"} ${PRIORITY_COLOR[task.priority]}`} data-testid={`task-priority-${task.id}`}>
+              {task.priority}
+            </Badge>
+            <h4 className={`font-display font-semibold leading-snug text-slate-900 ${compact ? "text-[11px]" : "text-base"}`} data-testid={`task-title-${task.id}`}>{task.title}</h4>
+          </div>
         </div>
         {canEdit && (
           <DropdownMenu>
