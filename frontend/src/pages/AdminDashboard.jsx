@@ -10,13 +10,14 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, History, Pencil, MoreVertical } from "lucide-react";
+import { Loader2, Plus, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, History, Pencil, MoreVertical, UserCog } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
 import ResetPasswordDialog from "@/components/ResetPasswordDialog";
 import AuditLogDialog from "@/components/AuditLogDialog";
+import ReassignTaskDialog from "@/components/ReassignTaskDialog";
 import TaskFilterBar from "@/components/TaskFilterBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { taskMatchesStatusFilter } from "@/lib/taskFilters";
@@ -54,6 +55,7 @@ export default function AdminDashboard() {
   const [viewingEmployee, setViewingEmployee] = useState(null);
   const [resettingUser, setResettingUser] = useState(null);
   const [historyTask, setHistoryTask] = useState(null);
+  const [reassigningTask, setReassigningTask] = useState(null);
   // Tracked explicitly (not an uncontrolled Tabs defaultValue) so the active tab survives
   // the full-page reload state that follows every create/edit/delete/status-change action.
   const [activeTab, setActiveTab] = useState("reports");
@@ -506,6 +508,9 @@ export default function AdminDashboard() {
                             <DropdownMenuItem onClick={() => { setEditingTask(t); setDialogOpen(true); }} data-testid={`urgent-task-edit-${t.id}`}>
                               <Pencil size={14} /> Edit
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setReassigningTask(t)} data-testid={`urgent-task-reassign-${t.id}`}>
+                              <UserCog size={14} /> Reassign
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setHistoryTask(t)} data-testid={`urgent-task-history-${t.id}`}>
                               <History size={14} /> View history
                             </DropdownMenuItem>
@@ -611,6 +616,14 @@ export default function AdminDashboard() {
         open={Boolean(historyTask)}
         onOpenChange={(o) => !o && setHistoryTask(null)}
         task={historyTask}
+      />
+
+      <ReassignTaskDialog
+        open={Boolean(reassigningTask)}
+        onOpenChange={(o) => !o && setReassigningTask(null)}
+        task={reassigningTask}
+        employees={employees}
+        onSaved={(t) => { upsert(t); load(); }}
       />
     </div>
   );
