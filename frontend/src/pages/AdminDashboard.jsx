@@ -10,7 +10,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Loader2, Plus, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, History, Pencil, MoreVertical, UserCog } from "lucide-react";
+import { Loader2, Plus, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, History, Pencil, MoreVertical, UserCog, FileText, Search, X } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
@@ -18,6 +18,10 @@ import TaskCard from "@/components/TaskCard";
 import ResetPasswordDialog from "@/components/ResetPasswordDialog";
 import AuditLogDialog from "@/components/AuditLogDialog";
 import ReassignTaskDialog from "@/components/ReassignTaskDialog";
+import ProductivityReportDialog from "@/components/ProductivityReportDialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import TaskFilterBar from "@/components/TaskFilterBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { taskMatchesStatusFilter } from "@/lib/taskFilters";
@@ -56,6 +60,10 @@ export default function AdminDashboard() {
   const [resettingUser, setResettingUser] = useState(null);
   const [historyTask, setHistoryTask] = useState(null);
   const [reassigningTask, setReassigningTask] = useState(null);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+
+  const [employeesQuery, setEmployeesQuery] = useState("");
+  const [employeesFilterRole, setEmployeesFilterRole] = useState("all");
   // Tracked explicitly (not an uncontrolled Tabs defaultValue) so the active tab survives
   // the full-page reload state that follows every create/edit/delete/status-change action.
   const [activeTab, setActiveTab] = useState("reports");
@@ -194,6 +202,15 @@ export default function AdminDashboard() {
       per_user: Object.values(perUserMap),
     };
   }, [tasks, employees]);
+
+  const filteredPerUser = useMemo(() => {
+    const q = employeesQuery.trim().toLowerCase();
+    return stats.per_user.filter((u) => {
+      if (employeesFilterRole !== "all" && u.role !== employeesFilterRole) return false;
+      if (q && !(u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [stats, employeesQuery, employeesFilterRole]);
 
   const workloadData = useMemo(() => {
     return stats.per_user
@@ -373,9 +390,62 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
+
+          <div className="mt-6 flex flex-col gap-3 border border-slate-200 bg-white p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="font-display text-lg font-semibold">Employee productivity report</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Tasks completed for the day, time spent on each, and what's still in progress — printable, for one employee or a consolidated group.
+              </p>
+            </div>
+            <Button
+              onClick={() => setReportDialogOpen(true)}
+              className="h-10 shrink-0 bg-klein hover:bg-kleinDark"
+              data-testid="open-productivity-report-button"
+            >
+              <FileText size={16} /> Generate report
+            </Button>
+          </div>
         </TabsContent>
 
         <TabsContent value="employees" className="mt-4 border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 p-3">
+            <div className="relative w-full sm:w-56">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                data-testid="employees-filter-search"
+                placeholder="Search name or email…"
+                value={employeesQuery}
+                onChange={(e) => setEmployeesQuery(e.target.value)}
+                className="h-9 rounded-md border-slate-300 pl-9 text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-[9px] uppercase tracking-[0.18em] text-slate-500">Role</Label>
+              <Select value={employeesFilterRole} onValueChange={setEmployeesFilterRole}>
+                <SelectTrigger className="h-9 w-32 rounded-md border-slate-300 text-sm" data-testid="employees-filter-role"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="employee">Employee</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {(employeesQuery.trim() || employeesFilterRole !== "all") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setEmployeesQuery(""); setEmployeesFilterRole("all"); }}
+                data-testid="employees-filter-reset"
+                className="h-9 text-xs text-slate-600"
+              >
+                <X size={14} /> Clear
+              </Button>
+            )}
+            <div className="ml-auto text-xs text-slate-500" data-testid="employees-filter-result-count">
+              {filteredPerUser.length} of {stats.per_user.length}
+            </div>
+          </div>
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
               <tr>
@@ -389,7 +459,13 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody>
-              {stats.per_user.map((u) => (
+              {filteredPerUser.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">
+                    No employees match the filter.
+                  </td>
+                </tr>
+              ) : filteredPerUser.map((u) => (
                 <tr
                   key={u.id}
                   onClick={() => setViewingEmployee(u)}
@@ -624,6 +700,14 @@ export default function AdminDashboard() {
         task={reassigningTask}
         employees={employees}
         onSaved={(t) => { upsert(t); load(); }}
+      />
+
+      <ProductivityReportDialog
+        open={reportDialogOpen}
+        onOpenChange={setReportDialogOpen}
+        employees={employees.filter((e) => e.role === "employee")}
+        tasks={tasks}
+        timeLogs={timeLogs}
       />
     </div>
   );

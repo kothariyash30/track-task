@@ -69,3 +69,14 @@ code, pre { font-family: "JetBrains Mono", ui-monospace, monospace; }
 @layer base {
   [data-debug-wrapper="true"] { display: contents !important; }
 }
+
+/* Printable reports: only .print-area (and its contents) render on paper, regardless of
+   where it sits in the DOM — Radix Dialog portals it straight under <body>, so hiding
+   everything else and re-positioning just this node is enough to isolate it on the page. */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+  .print-page-break { break-before: page; }
+}
