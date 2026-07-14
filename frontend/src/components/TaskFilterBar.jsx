@@ -20,7 +20,7 @@ export default function TaskFilterBar({
   employees, assignee, onAssigneeChange,
   priority, onPriorityChange, // omit to hide the Priority filter
   statuses, onToggleStatus, onClearStatuses,
-  dateRange, onDateRangeChange, onClearDateRange, // omit to hide the date-range filter
+  dateRange, onDateRangeChange, onClearDateRange, dateLabel = "In progress date", // omit onDateRangeChange to hide the date-range filter
   overdueOnly, onOverdueChange, // omit to hide the Overdue only toggle
   activeCount, onClearAll,
   resultCount, totalCount,
@@ -117,7 +117,7 @@ export default function TaskFilterBar({
 
       {onDateRangeChange && (
         <div className="flex flex-col gap-1">
-          <Label className="text-[9px] uppercase tracking-[0.18em] text-slate-500">In progress date</Label>
+          <Label className="text-[9px] uppercase tracking-[0.18em] text-slate-500">{dateLabel}</Label>
           <Popover>
             <PopoverTrigger asChild>
               <Button

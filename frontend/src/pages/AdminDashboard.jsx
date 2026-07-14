@@ -36,8 +36,9 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   // The All Tasks tab's two panels (urgent table, remaining tiles) each get their own
-  // fully independent filter state, separate from each other. The KPI tiles, Reports, and
-  // Employees tabs below always reflect the complete, unfiltered task set.
+  // fully independent filter state, separate from each other. The KPI tiles and Reports
+  // tab always reflect the complete, unfiltered task set; the Employees tab has its own
+  // independent task-level filter state (below) that narrows the per-employee stats table.
   const [urgentFilterAssignee, setUrgentFilterAssignee] = useState("all");
   const [urgentFilterStatuses, setUrgentFilterStatuses] = useState([]);
   const [urgentFilterInProgressRange, setUrgentFilterInProgressRange] = useState(() => {
@@ -64,6 +65,12 @@ export default function AdminDashboard() {
 
   const [employeesQuery, setEmployeesQuery] = useState("");
   const [employeesFilterRole, setEmployeesFilterRole] = useState("all");
+  // Task-level filters: narrow which tasks feed the per-employee Tasks/Done/In
+  // Progress/Hours columns below, independent of the row-level search/role filters above.
+  const [employeesFilterAssignee, setEmployeesFilterAssignee] = useState("all");
+  const [employeesFilterPriority, setEmployeesFilterPriority] = useState("all");
+  const [employeesFilterStatuses, setEmployeesFilterStatuses] = useState([]);
+  const [employeesFilterCreatedRange, setEmployeesFilterCreatedRange] = useState({ from: "", to: "" });
   // Tracked explicitly (not an uncontrolled Tabs defaultValue) so the active tab survives
   // the full-page reload state that follows every create/edit/delete/status-change action.
   const [activeTab, setActiveTab] = useState("reports");
@@ -203,14 +210,65 @@ export default function AdminDashboard() {
     };
   }, [tasks, employees]);
 
+  const toggleEmployeesStatus = (value) => setEmployeesFilterStatuses((prev) =>
+    prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+  );
+  const resetEmployeesTaskFilters = () => {
+    setEmployeesFilterAssignee("all"); setEmployeesFilterPriority("all");
+    setEmployeesFilterStatuses([]); setEmployeesFilterCreatedRange({ from: "", to: "" });
+  };
+  const activeEmployeesTaskFilterCount = [
+    employeesFilterAssignee !== "all" ? 1 : 0,
+    employeesFilterPriority !== "all" ? 1 : 0,
+    employeesFilterStatuses.length > 0 ? 1 : 0,
+    (employeesFilterCreatedRange.from || employeesFilterCreatedRange.to) ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+
+  // Tasks feeding the Employees tab's per-employee columns, filtered independently of the
+  // main `stats` (which stays unfiltered for the KPI tiles and Reports tab charts).
+  const employeesTabTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (employeesFilterAssignee !== "all" && t.assignee_id !== employeesFilterAssignee) return false;
+      if (employeesFilterPriority !== "all" && t.priority !== employeesFilterPriority) return false;
+      if (employeesFilterStatuses.length > 0 && !employeesFilterStatuses.some((s) => taskMatchesStatusFilter(t, s))) return false;
+      if (employeesFilterCreatedRange.from || employeesFilterCreatedRange.to) {
+        const d = t.created_at?.slice(0, 10);
+        if (d) {
+          if (employeesFilterCreatedRange.from && d < employeesFilterCreatedRange.from) return false;
+          if (employeesFilterCreatedRange.to && d > employeesFilterCreatedRange.to) return false;
+        }
+      }
+      return true;
+    });
+  }, [tasks, employeesFilterAssignee, employeesFilterPriority, employeesFilterStatuses, employeesFilterCreatedRange]);
+
+  const employeesTabPerUser = useMemo(() => {
+    const perUserMap = {};
+    employees.forEach((u) => {
+      perUserMap[u.id] = {
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        total_tasks: 0, todo: 0, in_progress: 0, done: 0, hours_logged: 0,
+      };
+    });
+    for (const t of employeesTabTasks) {
+      const pu = perUserMap[t.assignee_id];
+      if (pu) {
+        pu.total_tasks += 1;
+        pu[t.status] = (pu[t.status] || 0) + 1;
+        pu.hours_logged += Number(t.hours_logged || 0);
+      }
+    }
+    return Object.values(perUserMap);
+  }, [employees, employeesTabTasks]);
+
   const filteredPerUser = useMemo(() => {
     const q = employeesQuery.trim().toLowerCase();
-    return stats.per_user.filter((u) => {
+    return employeesTabPerUser.filter((u) => {
       if (employeesFilterRole !== "all" && u.role !== employeesFilterRole) return false;
       if (q && !(u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [stats, employeesQuery, employeesFilterRole]);
+  }, [employeesTabPerUser, employeesQuery, employeesFilterRole]);
 
   const workloadData = useMemo(() => {
     return stats.per_user
@@ -443,9 +501,33 @@ export default function AdminDashboard() {
               </Button>
             )}
             <div className="ml-auto text-xs text-slate-500" data-testid="employees-filter-result-count">
-              {filteredPerUser.length} of {stats.per_user.length}
+              {filteredPerUser.length} of {employeesTabPerUser.length} employees
             </div>
           </div>
+
+          <div className="flex items-center border-b border-slate-200 px-4 pt-3">
+            <span className="text-[9px] uppercase tracking-[0.18em] text-slate-400">Task data behind the columns below</span>
+          </div>
+          <TaskFilterBar
+            testidPrefix="employees-task-filter"
+            employees={employees}
+            assignee={employeesFilterAssignee}
+            onAssigneeChange={setEmployeesFilterAssignee}
+            priority={employeesFilterPriority}
+            onPriorityChange={setEmployeesFilterPriority}
+            statuses={employeesFilterStatuses}
+            onToggleStatus={toggleEmployeesStatus}
+            onClearStatuses={() => setEmployeesFilterStatuses([])}
+            dateRange={employeesFilterCreatedRange}
+            onDateRangeChange={setEmployeesFilterCreatedRange}
+            onClearDateRange={() => setEmployeesFilterCreatedRange({ from: "", to: "" })}
+            dateLabel="Created date"
+            activeCount={activeEmployeesTaskFilterCount}
+            onClearAll={resetEmployeesTaskFilters}
+            resultCount={employeesTabTasks.length}
+            totalCount={tasks.length}
+          />
+
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
               <tr>
