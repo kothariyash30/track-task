@@ -285,6 +285,7 @@ export default function EmployeeDashboard() {
                       task={t}
                       onEdit={openEdit}
                       onDelete={removeTask}
+                      canDelete={user?.role === "admin"}
                       onChangeStatus={changeStatus}
                       draggable
                       onDragStart={onDragStart(t)}

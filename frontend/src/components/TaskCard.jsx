@@ -17,7 +17,7 @@ const PRIORITY_COLOR = {
 const NEXT_STATUS = { todo: "in_progress", in_progress: "done", done: "in_progress" };
 const PREV_STATUS = { in_progress: "todo", done: "in_progress" };
 
-export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false, selectable = false, selected = false, onToggleSelect }) {
+export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, canDelete = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false, selectable = false, selected = false, onToggleSelect }) {
   const due = task.due_date ? parseISO(task.due_date) : null;
   const overdue = due && task.status !== "done" && isPast(due);
   const iconSize = compact ? 10 : 14;
@@ -75,10 +75,14 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onVie
                   {NEXT_STATUS[task.status] === "done" ? "Mark done" : "Advance"}
                 </DropdownMenuItem>
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onDelete?.(task)} className="text-red-600 focus:text-red-600" data-testid={`task-delete-${task.id}`}>
-                <Trash2 size={14} /> Delete
-              </DropdownMenuItem>
+              {canDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onDelete?.(task)} className="text-red-600 focus:text-red-600" data-testid={`task-delete-${task.id}`}>
+                    <Trash2 size={14} /> Delete
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}

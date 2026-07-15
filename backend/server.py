@@ -360,7 +360,9 @@ async def update_task(task_id: str, body: TaskUpdate, user: dict = Depends(get_c
         raise HTTPException(status_code=403, detail="Not allowed")
 
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
-    if "assignee_id" in updates and user["role"] != "admin":
+    # The edit dialog always submits assignee_id (even unchanged), so only block this when a
+    # non-admin is actually trying to change it — not merely echoing back the current value.
+    if "assignee_id" in updates and user["role"] != "admin" and updates["assignee_id"] != task.get("assignee_id"):
         raise HTTPException(status_code=403, detail="Only admin can reassign")
     if updates.get("priority") == "urgent" and user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can set urgent priority")
@@ -417,12 +419,10 @@ async def update_task(task_id: str, body: TaskUpdate, user: dict = Depends(get_c
 
 
 @api.delete("/tasks/{task_id}")
-async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
+async def delete_task(task_id: str, _: dict = Depends(require_admin)):
     task = await db.tasks.find_one({"id": task_id})
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if user["role"] != "admin" and task["created_by"] != user["id"] and task["assignee_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Not allowed")
     await db.tasks.delete_one({"id": task_id})
     await db.time_logs.delete_many({"task_id": task_id})
     await db.audit_logs.delete_many({"task_id": task_id})
