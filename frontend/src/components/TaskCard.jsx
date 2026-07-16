@@ -6,6 +6,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { format, parseISO, isPast } from "date-fns";
+import { formatHoursMinutes } from "@/lib/utils";
 
 const PRIORITY_COLOR = {
   low: "bg-blue-50 text-blue-700 border-blue-200",
@@ -14,10 +15,17 @@ const PRIORITY_COLOR = {
   urgent: "bg-red-600 text-white border-red-700",
 };
 
+const STATUS_LABEL = { todo: "To do", in_progress: "In progress", done: "Done" };
+const STATUS_COLOR = {
+  todo: "bg-slate-100 text-slate-600 border-slate-200",
+  in_progress: "bg-amber-50 text-amber-700 border-amber-200",
+  done: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
 const NEXT_STATUS = { todo: "in_progress", in_progress: "done", done: "in_progress" };
 const PREV_STATUS = { in_progress: "todo", done: "in_progress" };
 
-export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, canDelete = true, showAssignee = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false, selectable = false, selected = false, onToggleSelect }) {
+export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onViewHistory, canEdit = true, canDelete = true, showAssignee = false, showStatus = false, draggable = false, onDragStart, onDragEnd, compact = false, showInProgressDate = false, selectable = false, selected = false, onToggleSelect }) {
   const due = task.due_date ? parseISO(task.due_date) : null;
   const overdue = due && task.status !== "done" && isPast(due);
   const iconSize = compact ? 10 : 14;
@@ -48,44 +56,51 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onVie
             <h4 className={`font-display font-semibold leading-snug text-slate-900 ${compact ? "text-[11px]" : "text-base"}`} data-testid={`task-title-${task.id}`}>{task.title}</h4>
           </div>
         </div>
-        {canEdit && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className={`text-slate-400 hover:text-slate-700 ${compact ? "h-5 w-5" : "h-7 w-7"}`} data-testid={`task-menu-${task.id}`}>
-                <MoreVertical size={iconSize} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => onEdit?.(task)} data-testid={`task-edit-${task.id}`}>
-                <Pencil size={14} /> Edit
-              </DropdownMenuItem>
-              {onViewHistory && (
-                <DropdownMenuItem onClick={() => onViewHistory(task)} data-testid={`task-history-${task.id}`}>
-                  <History size={14} /> View history
+        <div className="flex items-start gap-1.5">
+          {showStatus && (
+            <Badge variant="outline" className={`shrink-0 rounded-sm border uppercase tracking-widest ${compact ? "text-[7px]" : "text-[10px]"} ${STATUS_COLOR[task.status]}`} data-testid={`task-status-${task.id}`}>
+              {STATUS_LABEL[task.status] || task.status}
+            </Badge>
+          )}
+          {canEdit && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className={`text-slate-400 hover:text-slate-700 ${compact ? "h-5 w-5" : "h-7 w-7"}`} data-testid={`task-menu-${task.id}`}>
+                  <MoreVertical size={iconSize} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => onEdit?.(task)} data-testid={`task-edit-${task.id}`}>
+                  <Pencil size={14} /> Edit
                 </DropdownMenuItem>
-              )}
-              {PREV_STATUS[task.status] && (
-                <DropdownMenuItem onClick={() => onChangeStatus?.(task, PREV_STATUS[task.status])} data-testid={`task-status-back-${task.id}`}>
-                  <ArrowLeft size={14} /> Move back
-                </DropdownMenuItem>
-              )}
-              {NEXT_STATUS[task.status] && task.status !== "done" && (
-                <DropdownMenuItem onClick={() => onChangeStatus?.(task, NEXT_STATUS[task.status])} data-testid={`task-status-next-${task.id}`}>
-                  {NEXT_STATUS[task.status] === "done" ? <Check size={14} /> : <ArrowRight size={14} />}
-                  {NEXT_STATUS[task.status] === "done" ? "Mark done" : "Advance"}
-                </DropdownMenuItem>
-              )}
-              {canDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onDelete?.(task)} className="text-red-600 focus:text-red-600" data-testid={`task-delete-${task.id}`}>
-                    <Trash2 size={14} /> Delete
+                {onViewHistory && (
+                  <DropdownMenuItem onClick={() => onViewHistory(task)} data-testid={`task-history-${task.id}`}>
+                    <History size={14} /> View history
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                )}
+                {PREV_STATUS[task.status] && (
+                  <DropdownMenuItem onClick={() => onChangeStatus?.(task, PREV_STATUS[task.status])} data-testid={`task-status-back-${task.id}`}>
+                    <ArrowLeft size={14} /> Move back
+                  </DropdownMenuItem>
+                )}
+                {NEXT_STATUS[task.status] && task.status !== "done" && (
+                  <DropdownMenuItem onClick={() => onChangeStatus?.(task, NEXT_STATUS[task.status])} data-testid={`task-status-next-${task.id}`}>
+                    {NEXT_STATUS[task.status] === "done" ? <Check size={14} /> : <ArrowRight size={14} />}
+                    {NEXT_STATUS[task.status] === "done" ? "Mark done" : "Advance"}
+                  </DropdownMenuItem>
+                )}
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onDelete?.(task)} className="text-red-600 focus:text-red-600" data-testid={`task-delete-${task.id}`}>
+                      <Trash2 size={14} /> Delete
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
       {task.description && (
@@ -99,7 +114,7 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus, onVie
           </span>
         )}
         <span data-testid={`task-hours-${task.id}`} className="inline-flex items-center gap-1">
-          <Clock size={smallIconSize} /> {Number(task.hours_logged || 0).toFixed(1)}h
+          <Clock size={smallIconSize} /> {formatHoursMinutes(task.hours_logged)}
         </span>
         {showInProgressDate ? (
           <span data-testid={`task-in-progress-${task.id}`}>

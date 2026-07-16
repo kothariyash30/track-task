@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { Loader2, Plus, Users, ListChecks, Clock, CheckCircle2, Download, Trash2, KeyRound, History, Pencil, MoreVertical, UserCog, FileText, Search, X } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { formatHoursMinutes } from "@/lib/utils";
 import { toast } from "sonner";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
@@ -426,7 +427,7 @@ export default function AdminDashboard() {
           [Users, "Employees", stats.totals.employees],
           [ListChecks, "Total tasks", stats.totals.tasks],
           [CheckCircle2, "Completed today", completedToday],
-          [Clock, "Hours logged today", hoursLoggedToday.toFixed(1)],
+          [Clock, "Hours logged today", formatHoursMinutes(hoursLoggedToday)],
         ].map(([Icon, k, v]) => (
           <div key={k} className="bg-white px-5 py-4" data-testid={`kpi-${k.toLowerCase().replace(/\s/g, "-")}`}>
             <div className="flex items-center gap-2 text-slate-500"><Icon size={14} /> <span className="text-xs uppercase tracking-[0.18em]">{k}</span></div>
@@ -605,7 +606,7 @@ export default function AdminDashboard() {
                   <td className="px-4 py-3 font-mono">{u.total_tasks}</td>
                   <td className="px-4 py-3 font-mono text-emerald-700">{u.done}</td>
                   <td className="px-4 py-3 font-mono text-amber-700">{u.in_progress}</td>
-                  <td className="px-4 py-3 font-mono">{Number(u.hours_logged || 0).toFixed(1)}h</td>
+                  <td className="px-4 py-3 font-mono">{formatHoursMinutes(u.hours_logged)}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <Button
@@ -819,6 +820,7 @@ export default function AdminDashboard() {
                     onChangeStatus={changeStatus}
                     onViewHistory={setHistoryTask}
                     showAssignee
+                    showStatus
                     compact
                     showInProgressDate
                     selectable

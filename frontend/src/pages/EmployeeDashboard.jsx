@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format, parseISO } from "date-fns";
+import { formatHoursMinutes } from "@/lib/utils";
 import TaskDialog from "@/components/TaskDialog";
 import TaskCard from "@/components/TaskCard";
 
@@ -244,7 +245,7 @@ export default function EmployeeDashboard() {
           ["Active today", stats.total],
           ["In progress", stats.in_progress],
           ["Completed today", stats.done],
-          ["Hours logged today", stats.hours.toFixed(1)],
+          ["Hours logged today", formatHoursMinutes(stats.hours)],
         ].map(([k, v]) => (
           <div key={k} className="bg-white px-5 py-4">
             <div className="font-display text-3xl font-semibold text-slate-900" data-testid={`stat-${k.toLowerCase().replace(/\s/g, "-")}`}>{v}</div>

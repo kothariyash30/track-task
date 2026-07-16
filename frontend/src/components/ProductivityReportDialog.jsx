@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, Printer } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { formatHoursMinutes } from "@/lib/utils";
 
 // A task still sitting in_progress hasn't closed its current session out into hours_logged
 // yet (that only happens when it leaves in_progress — see server.py's update_task), so a
@@ -50,6 +51,24 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
       return { emp, completedToday, inProgress, hoursToday };
     });
   }, [selectedEmployees, tasks, timeLogs, reportDate]);
+
+  // Independent of the checkbox selection above — this flags anyone with no task
+  // currently in_progress, across the whole employee roster, so it's useful even
+  // when the detailed per-employee report below hasn't been generated yet.
+  const idleEmployeeRows = useMemo(() => {
+    return employees
+      .filter((emp) => !tasks.some((t) => t.assignee_id === emp.id && t.status === "in_progress"))
+      .map((emp) => {
+        const empTasks = tasks.filter((t) => t.assignee_id === emp.id);
+        return {
+          emp,
+          todoCount: empTasks.filter((t) => t.status === "todo").length,
+          completedTodayCount: empTasks.filter(
+            (t) => t.completed_at && t.completed_at.slice(0, 10) === reportDate
+          ).length,
+        };
+      });
+  }, [employees, tasks, reportDate]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -102,7 +121,7 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
 
           <Button
             onClick={() => window.print()}
-            disabled={reportRows.length === 0}
+            disabled={reportRows.length === 0 && idleEmployeeRows.length === 0}
             className="h-9 bg-klein hover:bg-kleinDark"
             data-testid="report-print-button"
           >
@@ -110,17 +129,45 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
           </Button>
         </div>
 
-        {reportRows.length === 0 ? (
-          <div className="border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
-            Select one or more employees to generate the report.
+        <div className="print-area max-h-[65vh] overflow-y-auto p-1">
+          <div className="mb-4">
+            <h2 className="font-display text-xl font-bold text-slate-900">Employee Productivity Report</h2>
+            <p className="text-sm text-slate-500">{format(parseISO(reportDate), "EEEE, MMMM d, yyyy")}</p>
           </div>
-        ) : (
-          <div className="print-area max-h-[65vh] overflow-y-auto p-1">
-            <div className="mb-4">
-              <h2 className="font-display text-xl font-bold text-slate-900">Employee Productivity Report</h2>
-              <p className="text-sm text-slate-500">{format(parseISO(reportDate), "EEEE, MMMM d, yyyy")}</p>
-            </div>
 
+          <div className="mb-8" data-testid="idle-employees-report">
+            <h3 className="mb-1 font-display text-base font-semibold text-slate-900">Employees not currently working</h3>
+            <p className="mb-2 text-xs text-slate-500">No task in progress right now — may need a new task assigned.</p>
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-300 text-left text-xs uppercase tracking-[0.14em] text-slate-500">
+                <tr>
+                  <th className="py-2 pr-3 font-medium">Employee</th>
+                  <th className="py-2 pr-3 font-medium">Email</th>
+                  <th className="py-2 pr-3 font-medium">To-do tasks waiting</th>
+                  <th className="py-2 pr-3 font-medium">Completed today</th>
+                </tr>
+              </thead>
+              <tbody>
+                {idleEmployeeRows.length === 0 ? (
+                  <tr><td colSpan={4} className="py-2 text-slate-400">Every employee has a task in progress.</td></tr>
+                ) : idleEmployeeRows.map(({ emp, todoCount, completedTodayCount }) => (
+                  <tr key={emp.id} className="border-b border-slate-100" data-testid={`idle-employee-row-${emp.id}`}>
+                    <td className="py-2 pr-3 font-medium text-slate-900">{emp.name}</td>
+                    <td className="py-2 pr-3 text-slate-500">{emp.email}</td>
+                    <td className="py-2 pr-3 font-mono">{todoCount}</td>
+                    <td className="py-2 pr-3 font-mono">{completedTodayCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {reportRows.length === 0 ? (
+            <div className="border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
+              Select one or more employees below to generate a detailed report.
+            </div>
+          ) : (
+            <>
             {reportRows.length > 1 && (
               <table className="mb-8 w-full text-sm">
                 <thead className="border-b border-slate-300 text-left text-xs uppercase tracking-[0.14em] text-slate-500">
@@ -137,7 +184,7 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
                       <td className="py-2 pr-3 font-medium text-slate-900">{emp.name}</td>
                       <td className="py-2 pr-3 font-mono">{completedToday.length}</td>
                       <td className="py-2 pr-3 font-mono">{inProgress.length}</td>
-                      <td className="py-2 pr-3 font-mono">{hoursToday.toFixed(1)}h</td>
+                      <td className="py-2 pr-3 font-mono">{formatHoursMinutes(hoursToday)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -161,7 +208,7 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
                     <div className="uppercase tracking-[0.14em] text-slate-500">In progress</div>
                   </div>
                   <div className="border border-slate-200 py-2">
-                    <div className="font-display text-lg font-semibold text-slate-900">{hoursToday.toFixed(1)}h</div>
+                    <div className="font-display text-lg font-semibold text-slate-900">{formatHoursMinutes(hoursToday)}</div>
                     <div className="uppercase tracking-[0.14em] text-slate-500">Hours logged today</div>
                   </div>
                 </div>
@@ -181,10 +228,13 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
                       <tr><td colSpan={4} className="py-2 text-slate-400">No tasks completed on this date.</td></tr>
                     ) : completedToday.map((t) => (
                       <tr key={t.id} className="border-b border-slate-100">
-                        <td className="py-1.5 pr-3">{t.title}</td>
+                        <td className="py-1.5 pr-3">
+                          <div>{t.title}</div>
+                          {t.description && <div className="mt-0.5 text-xs text-slate-500">{t.description}</div>}
+                        </td>
                         <td className="py-1.5 pr-3 capitalize">{t.priority}</td>
                         <td className="py-1.5 pr-3">{format(parseISO(t.completed_at), "h:mm a")}</td>
-                        <td className="py-1.5 pr-3 font-mono">{Number(t.hours_logged || 0).toFixed(2)}h</td>
+                        <td className="py-1.5 pr-3 font-mono">{formatHoursMinutes(t.hours_logged)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -205,18 +255,22 @@ export default function ProductivityReportDialog({ open, onOpenChange, employees
                       <tr><td colSpan={4} className="py-2 text-slate-400">No tasks currently in progress.</td></tr>
                     ) : inProgress.map((t) => (
                       <tr key={t.id} className="border-b border-slate-100">
-                        <td className="py-1.5 pr-3">{t.title}</td>
+                        <td className="py-1.5 pr-3">
+                          <div>{t.title}</div>
+                          {t.description && <div className="mt-0.5 text-xs text-slate-500">{t.description}</div>}
+                        </td>
                         <td className="py-1.5 pr-3 capitalize">{t.priority}</td>
                         <td className="py-1.5 pr-3">{t.in_progress_at ? format(parseISO(t.in_progress_at), "MMM d, h:mm a") : "—"}</td>
-                        <td className="py-1.5 pr-3 font-mono">{liveHours(t).toFixed(2)}h</td>
+                        <td className="py-1.5 pr-3 font-mono">{formatHoursMinutes(liveHours(t))}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ))}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
